@@ -10,7 +10,7 @@ The package is terribly simple- just add **oval_tools.py** to your Python path.
 Prereqs are simple: keep your Python, Numpy, Matplotlib, and Scipy up to date.
 
 |Package | Version |
---------------------
+|--------|---------|
 |Python | 3.X  |
 |Numpy  | 1.16.X |
 |Matplotlib | 3.1.X |

@@ -56,7 +56,9 @@ Aurora objects.  Be sure to use tab-complete and docstrings to learn more:
 
 ```python
 # After the above commands are executed...
+>>> import matplotlib.pyplot as plt
 >>> data.add_dial_plot('eflux')
 >>> data.mutate('north', rotate=90.)
 >>> data.add_dial_plot('eflux')
+>>> plt.show()
 ```

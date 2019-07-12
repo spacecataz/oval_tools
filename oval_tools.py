@@ -52,7 +52,7 @@ def set_target(target, figsize=None, loc=111, polar=False):
     Examples
     ========
     >>> import matplotlib.pyplot as plt
-    >>> from spacepy.pybats import set_target
+    >>> from spacepy.plot import set_target
     >>> fig = plt.figure()
     >>> fig, ax = set_target(target=fig, loc=211)
 

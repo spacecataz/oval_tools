@@ -303,7 +303,7 @@ class Aurora(dict):
             ax.text(pi/4., 90.-theta, txt, color='k', weight='light', **opts)
         
         # Set title:
-        ax.set_title(title)
+        if title: ax.set_title(title)
         
         # Return plot objects:
         return fig, ax, cont, cbar

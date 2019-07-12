@@ -29,3 +29,34 @@ in the file name
 (i.e., *AE_[lower AE bin boundary]_[upper AE bin boundary].save*).
 The values inside the files are binned by magnetic latitude and magnetic
 local time.
+
+## Usage
+The main subroutine is an APL for handling and manipulating auroral data files.
+The main object is the *Aurora* object, which is a subclass of *dict*.  Instantiate
+with the following syntax:
+
+```python
+>>> import oval_tools
+>>> data = oval_tools.Aurora('./data/AE_350_400.save')
+```
+
+Basic info about the oval object can be obtained using dictionary-like syntax.  Physical
+values, such as energy flux and average energy, are nested *per hemisphere*.  For example,
+you can look at the latitude/MLT grid and the southern hemisphere energy flux as follows:
+
+```python
+# After the above commands are executed...
+>>> print(data['mlt'])
+>>> print(data['lat'])
+>>> print(data['south']['eflux'])
+```
+
+Object methods can be used to investigate, alter, and evaluate the information within the
+Aurora objects.  Be sure to use tab-complete and docstrings to learn more:
+
+```python
+# After the above commands are executed...
+>>> data.add_dial_plot('eflux')
+>>> data.mutate('north', rotate=90.)
+>>> data.add_dial_plot('eflux')
+```

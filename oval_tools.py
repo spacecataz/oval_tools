@@ -14,6 +14,17 @@ plt.style.use('seaborn-talk')
 labels = {'eflux':'Energy Flux', 'avee':'Avg. Energy'}
 units = {'eflux':r'$ergs/cm^{2}/s$', 'avee':'$ergs?$'} #DON'T KNOW AVEE UNITS.
 
+def cc2d(f, t):
+    '''
+    2D correlation coefficient for two matrices of the same size and shape.
+    Based on "Fast Normalized Cross-Correlation" by J. P. Lewis; adapted
+    so that no shifting takes place.  Doesn't get more simple than this.
+    '''
+    corr = ( (f-f.mean()) * (t-t.mean()) ).sum()
+    variance = np.sqrt( ((f-f.mean())**2).sum() * ((t-t.mean())**2).sum() )
+
+    return corr/variance
+
 def set_target(target, figsize=None, loc=111, polar=False):
     '''
     This is a helper function for plotting that makes building multi-panel

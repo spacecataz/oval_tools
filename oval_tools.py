@@ -22,7 +22,7 @@ def cc2d(f, t):
     '''
     corr = ( (f-f.mean()) * (t-t.mean()) ).sum()
     variance = np.sqrt( ((f-f.mean())**2).sum() * ((t-t.mean())**2).sum() )
-
+    
     return corr/variance
 
 def set_target(target, figsize=None, loc=111, polar=False):
@@ -444,5 +444,32 @@ class Aurora(dict):
 
         return True
     
-    def hemi_corr(self):
-        pass
+    def corr_hemi(self, var, noise=True):
+        '''
+        Compute the cross-correlation matrix between the northern and southern
+        hemisphere for variable *var*.  The noise filter is included in this 
+        process.
+
+        Parameters
+        ==========
+        var : string
+            Name of variable onto which noise will be added.
+        '''
+
+        from scipy.signal import correlate2d
+
+        # Make sure noise filters are available:
+        if var+'_n' not in self['north']:
+            self['north'][var+'_n'] = np.zeros( self['north'][var].shape )
+        if var+'_n' not in self['south']:
+            self['south'][var+'_n'] = np.zeros( self['south'][var].shape )
+
+        # Get variables.  Add noise to signals.
+        # We must subtract means to get normalized (pearson) CC.
+        x = (self['north'][var] + self['north'][var+'_n'])
+        x-=x.mean()
+        y = (self['south'][var] + self['south'][var+'_n'])
+        y-=y.mean()
+
+        # Normalize final answer by standard deviations:
+        return correlate2d(x,y,mode='same',boundary='wrap')/(x.std()*y.std()*x.size)

@@ -94,6 +94,10 @@ class Aurora(dict):
     Upon instantiation, an IDL save file (indicated with argument *filename*)
     will be loaded into the object for use with the object methods.
 
+    Noise can be added to any variable via the "add_noise" method.  The noise
+    is stored separately as self[var+'_n'], so that the original data can 
+    still be accessed.  
+
     Parameters
     ==========
     filename : string
@@ -134,36 +138,50 @@ class Aurora(dict):
         temp = readsav(self.filename)
 
         ## COPY DATA FROM SAVE FILE ##
+        # Note that we kill the half-width cells about the midnight boundary.
         # Save lat/lons:
         self['lat'] = temp['lats']
-        self['mlt'] = temp['mlts']
+        self['mlt'] = temp['mlts'][1:-1]
 
         # Put fluxes into correct hemispheres:
-        self['north']['avee']  = temp['aveenorth' ]
-        self['south']['avee']  = temp['aveesouth' ]
-        self['north']['eflux'] = temp['efluxnorth']
-        self['south']['eflux'] = temp['efluxsouth']
+        self['north']['avee']  = temp['aveenorth' ][:,1:-1]
+        self['south']['avee']  = temp['aveesouth' ][:,1:-1]
+        self['north']['eflux'] = temp['efluxnorth'][:,1:-1]
+        self['south']['eflux'] = temp['efluxsouth'][:,1:-1]
         
-        # Calculate some related variables necessary for polar plotting:
+        # Calculate some related variables necessary in polar coordinates:
         self.colat = 90.-self['lat']  #radial 
         self.phi   = np.pi*15/180*self['mlt'] - np.pi/2.  #Azimuthal+offset.
-
+        
         # Calculate variables related to creating permutations:
         self.dMlt = self['mlt'][2] - self['mlt'][1]
         self.dLat = self['lat'][2] - self['lat'][1]
         self.dLon = self.dMlt*15 # This is useful.
 
+        # Calculate some variables for mesh plotting:
+        self.phi_mesh   = np.linspace(self['mlt'][0] -self.dMlt/2,
+                                      self['mlt'][-1]+self.dMlt/2,
+                                      self['mlt'].size+1)
+        self.colat_mesh = np.linspace(self['lat'][0] -self.dLat/2,
+                                      self['lat'][-1]+self.dLat/2,
+                                      self['lat'].size+1)
+        self.phi_mesh   = np.pi*15/180*self.phi_mesh - np.pi/2.
+        self.colat_mesh = 90.-self.colat_mesh
+        
         return True
 
-    def add_dial_plot(self, var, nlev=101, hemi='north', target=None, loc=111,
+    def add_dial_plot(self, var, hemi='north', target=None, loc=111,
                       zlim=None, title=None, add_cbar=False, clabel=None,
-                      cmap='hot_r', dolog=False, lat_ticks=15,
+                      cmap='hot_r', dolog=False, lat_ticks=15, show_noise=True,
                       *args, **kwargs):
         '''
         Add a dial plot of variable **var** using hemisphere **hemi**.  
         The **target** and **loc** syntax sets the default location of the
         resulting plot.  The resulting matplotlib objects (figure, axes, etc.)
         are returned to the caller for further customization.
+
+        The plotting method is Matplotlib's *pcolormesh*.  The grid points
+        in the original file are used as cell centers for each pixel.
 
         If kwarg **target** is None (default), a new figure is 
         generated from scratch.  If target is a matplotlib Figure
@@ -201,8 +219,6 @@ class Aurora(dict):
             Use to specify the subplot placement of the axis
             (e.g. loc=212, etc.) Used if target is a Figure or None.
             Default 111 (single plot).
-        nlev : int
-            Set the number of contour integers.  Defaults to 101.
         zlim : two-element list or array
             Set the color bar range.  Defaults to max/min of data.
         add_cbar : bool
@@ -217,6 +233,8 @@ class Aurora(dict):
             Set the color map to be used.  Defaults to 'hot_r'.
         lat_ticks : int
             Set the cadence for latitude ticks.  Defaults to 15 degrees.
+        show_noise : bool
+            Control if image noise is included on plot.  Default is True.
 
         Examples:
         =========
@@ -248,34 +266,42 @@ class Aurora(dict):
         # Set ax and fig based on given target.
         fig, ax = set_target(target, figsize=(10,10), loc=loc, polar=True)
 
+        # Get variable to plot.  Include noise if requested.
+        if var+'_n' not in self[hemi]:
+            self[hemi][var+'_n'] = np.zeros( self[hemi][var].shape )
+        z = self[hemi][var] + show_noise*self[hemi][var+'_n']
+        
         # Get max/min if none given:
         if zlim is None:
             zlim=[0,0]
-            zlim[0]=self[hemi][var].min(); zlim[1]=self[hemi][var].max()
+            zlim[0]=z.min(); zlim[1]=z.max()
             # If log scale, ensure minimum does not cross zero:
             if dolog and zlim[0]<=0:
                 zlim[0] = np.min( [0.0001, zlim[1]/1000.0] )
 
         # Set contour levels.  Safest to do this "by hand":
         if dolog:
-            # Set levels evenly in log space:
-            levs = np.power(10, np.linspace(np.log10(zlim[0]), 
-                                            np.log10(zlim[1]), nlev))
-            z=np.where(self[hemi][var]>zlim[0], self[hemi][var], 1.01*zlim[0])
+            # Set levels evenly in log space: NOT NEEDED FOR PCOLORMESH
+            #levs = np.power(10, np.linspace(np.log10(zlim[0]), 
+            #                                np.log10(zlim[1]), nlev))
+            z=np.where(z>zlim[0], z, 1.01*zlim[0])
             norm=LogNorm()
             ticks=LogLocator()
             fmt=LogFormatterMathtext()
         else:
-            levs = np.linspace(zlim[0], zlim[1], nlev)
-            z=self[hemi][var]
+            # LEVS NOT NEEDED FOR PCOLORMESH
+            #levs = np.linspace(zlim[0], zlim[1], nlev)
             norm=None
             ticks=None
             fmt=None
 
         ### Create Plot ###
         # Add contour to axes:
-        cont = ax.contourf(self.phi, self.colat, z, levs, cmap=cmap, *args,
-                           norm=norm, **kwargs)
+        cont = ax.pcolormesh(self.phi_mesh, self.colat_mesh, z,
+                             cmap=cmap, *args, norm=norm, **kwargs)
+        ax.grid() #pcolor turns off grid.  :P
+        #cont = ax.contourf(self.phi, self.colat, z, levs, cmap=cmap, *args,
+        #                   norm=norm, **kwargs)
 
         # Add cbar as required:
         if add_cbar:
@@ -383,8 +409,40 @@ class Aurora(dict):
 
         
         
-    def add_noise(self):
-        pass
+    def add_noise(self, var, SNR=10, hemi='north'):
+        '''
+        Add guassian white noise to variable *var* that creates a 
+        signal-to-noise (SNR) ratio of *SNR*.
 
+        Parameters
+        ==========
+        var : string
+            Name of variable onto which noise will be added.
+
+        Other Parameters
+        ==========
+        SNR : float
+            The desired signal-to-noise ratio.  Defaults to 10.
+        hemi : string
+            Select which hemisphere to change.  Defaults to 'north'.
+            Single letters can be used (e.g., "n" for "north").
+        '''
+
+        from numpy.random import normal
+
+        # Using SNR = Power_signal / Power_noise, and Power_noise =
+        # noise variance for gaussian white noise, calculate the noise
+        # standard deviation required to get the desired SNR.
+        power   = np.sqrt(np.mean(self[hemi][var]**2))
+        std_dev = np.sqrt(power/SNR)
+
+        # Generate noise:
+        noise = normal(0, std_dev, self[hemi][var].shape)
+
+        # Save noise related to this variable:
+        self[hemi][var+'_n'] = noise
+
+        return True
+    
     def hemi_corr(self):
         pass

@@ -132,6 +132,7 @@ class Aurora(dict):
         instantiation.
         '''
 
+        from numpy import meshgrid, pi, sin, cos
         from scipy.io import readsav
 
         # Load data from IDL save file.
@@ -143,6 +144,11 @@ class Aurora(dict):
         self['lat'] = temp['lats']
         self['mlt'] = temp['mlts'][1:-1]
 
+        # Calculate variables related to creating permutations:
+        self.dMlt = self['mlt'][2] - self['mlt'][1]
+        self.dLat = self['lat'][2] - self['lat'][1]
+        self.dLon = self.dMlt*15 # This is useful.
+        
         # Put fluxes into correct hemispheres:
         self['north']['avee']  = temp['aveenorth' ][:,1:-1]
         self['south']['avee']  = temp['aveesouth' ][:,1:-1]
@@ -150,14 +156,23 @@ class Aurora(dict):
         self['south']['eflux'] = temp['efluxsouth'][:,1:-1]
         
         # Calculate some related variables necessary in polar coordinates:
+        # Note that phi is defined as the counter-clockwise angle off of the
+        # negative SM Y direction.  This is for plotting purposes.
         self.colat = 90.-self['lat']  #radial 
-        self.phi   = np.pi*15/180*self['mlt'] - np.pi/2.  #Azimuthal+offset.
-        
-        # Calculate variables related to creating permutations:
-        self.dMlt = self['mlt'][2] - self['mlt'][1]
-        self.dLat = self['lat'][2] - self['lat'][1]
-        self.dLon = self.dMlt*15 # This is useful.
+        self.phi   = pi*15/180*self['mlt'] - pi/2.  #Azimuthal+offset.
+        self.phi[self.phi<0] += 2*pi
 
+        # Calculate SM XYZ cartesian coords for transformations:
+        self.xyz = np.zeros( [3, self.colat.size, self.phi.size] )
+        for i, theta in enumerate(pi/180*self.colat):
+            for j, phi in enumerate(self.phi):
+                self.xyz[:,i,j] = sin(theta)*sin(phi), \
+                                  sin(theta)*cos(phi), \
+                                  cos(theta)
+        
+        # Calculate some variables for interpolating:
+        self.phi_grid, self.colat_grid = meshgrid(self.phi, self.colat)
+                
         # Calculate some variables for mesh plotting:
         self.phi_mesh   = np.linspace(self['mlt'][0] -self.dMlt/2,
                                       self['mlt'][-1]+self.dMlt/2,
@@ -165,9 +180,9 @@ class Aurora(dict):
         self.colat_mesh = np.linspace(self['lat'][0] -self.dLat/2,
                                       self['lat'][-1]+self.dLat/2,
                                       self['lat'].size+1)
-        self.phi_mesh   = np.pi*15/180*self.phi_mesh - np.pi/2.
+        self.phi_mesh   = pi*15/180*self.phi_mesh - pi/2.
         self.colat_mesh = 90.-self.colat_mesh
-        
+
         return True
 
     def add_dial_plot(self, var, hemi='north', target=None, loc=111,
@@ -357,7 +372,7 @@ class Aurora(dict):
 
         return True
     
-    def mutate(self, hemi='north', rotate=0., expand=0.,
+    def mutate(self, hemi='north', yaw=0., pitch=0.0, roll=0.0, expand=0.,
                shift_dir=0, shift_lat=0.0):
         '''
         Mutate an oval picture by rotating, expanding, or shifting.
@@ -371,9 +386,11 @@ class Aurora(dict):
 
         The order of the permutations is as follows:
 
-        1. The pattern will be rotated about the poll.
-        2. The pattern will be grown/shrunk in latitude.
-        3. The directional shift will be applied.
+        1.  The pattern will be shifted in latitude (*expand* kwarg)
+        2.  The pattern will be rotated in local time (*yaw* kwarg)
+        3.  The pattern will be shifted (*pitch* and *roll* kwargs)
+        4.  If #3 is performed, the pattern is interpolated back onto
+            the original grid (bi-linear interpolation.)
 
         Multiple calls to this method with one mutation at a time can 
         achieve different orders if desired.
@@ -384,31 +401,67 @@ class Aurora(dict):
 
         Other Parameters
         ==========
-        rotate : float
-            Angle (degrees) to rotate the oval picture about the magnetic pole.
-        expand : float
-            Latitude, in degrees, to grow (or shrink if negative) the oval.
         hemi : string
             Select which hemisphere to change.  Defaults to 'north'.
             Single letters can be used (e.g., "n" for "north").
+        expand : float
+            Latitude, in degrees, to grow (or shrink if negative) the oval.
+        yaw : float
+            Angle (degrees) to rotate the oval picture about the magnetic pole.
+        roll : float
+            Angle (degrees) to rotate the picture about the SM X axis.
+        pitch : float
+            Angle (degrees) to roate the picture about the SM Y axis.
+
         '''
 
+        from numpy import pi, cos, sin, matmul, arccos, arctan2
+        from scipy.interpolate import LinearNDInterpolator as LinInt
+        
         ### Set hemisphere name ###
         if hemi[0].lower()=='n':
             hemi='north'
         else:
             hemi='south'
-        
-        ### Rotate oval ###
-        lon_shift = int( np.round(rotate / self.dLon) )
-        self._roll(0, lon_shift, hemi)
-        
+
+        # Convert pitch/roll to radians:
+        roll  *= pi/180.
+        pitch *= pi/180.
+            
         ### Expand oval ###
         lat_shift = int( np.round(expand / self.dLat) )
         self._roll(lat_shift, 0, hemi)
 
+        ### Rotate oval ###
+        lon_shift = int( np.round(yaw / self.dLon) )
+        self._roll(0, lon_shift, hemi)
         
+        ### Shift oval ###
+        # Roll: rotation about x-axis:
+        rot = np.array( [[1,         0,          0],
+                         [0, cos(roll), -sin(roll)],
+                         [0, sin(roll),  cos(roll)]] )
+
+        # Apply rotations to XYZ matrix:
+        xyz_rot = np.zeros( [3,self.colat.size, self.phi.size] )
+        for i in range(self.colat.size):
+            for j in range(self.phi.size):
+                    xyz_rot[:,i,j] = matmul(self.xyz[:,i,j], rot)
+
+        # Convert XYZ to new colat/phi:
+        colat = arccos(xyz_rot[2,:,:])
+        phi   = arctan2(xyz_rot[0,:,:], xyz_rot[1,:,:])
+        phi[phi<0] += 2*pi
         
+        # Re-bin to original grid:
+        old = np.array( [self.colat_grid.ravel()*np.pi/180,
+                         self.phi_grid.ravel()]).transpose()
+        pts = np.array( [colat.ravel(), phi.ravel()]).transpose()
+        f   =  LinInt(pts, self[hemi]['eflux'].ravel(), fill_value=0)
+        self[hemi]['eflux'] = f(old).reshape(self[hemi]['eflux'].shape)
+
+        #return colat*180/np.pi, phi
+
     def add_noise(self, var, SNR=10, hemi='north'):
         '''
         Add guassian white noise to variable *var* that creates a 

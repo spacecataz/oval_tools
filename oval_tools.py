@@ -11,8 +11,10 @@ import matplotlib.pyplot as plt
 plt.style.use('seaborn-talk')
 
 # Some default labels for plotting:
-labels = {'eflux':'Energy Flux', 'avee':'Avg. Energy'}
-units = {'eflux':r'$ergs/cm^{2}/s$', 'avee':'$ergs?$'} #DON'T KNOW AVEE UNITS.
+labels = {'eflux':'Energy Flux', 'avee':'Avg. Energy',
+          'ilong':'LBH Long', 'ishort':'LBH Short'}
+units = {'eflux':r'$ergs/cm^{2}/s$', 'avee':'$keV$', 'ilong':'Rayleighs',
+         'ishort':'Rayleighs'} 
 
 def cc2d(f, t):
     '''
@@ -183,11 +185,51 @@ class Aurora(dict):
         self.phi_mesh   = pi*15/180*self.phi_mesh - pi/2.
         self.colat_mesh = 90.-self.colat_mesh
 
+        # Calculate some extra variables (e.g., brightness):
+        self._calc_bright()
+        
         return True
 
+    def _calc_bright(self):
+        '''
+        The brightness observed in the GAIA LBH passbands (long and short) 
+        for given precipitation parameters.
+    
+        This is an empirical model determined by fitting results obtained by 
+        running GLOW with Franck-Condon factors combined with the nominal GAIA 
+        LBH passbands, including the effect of O2 absorption.
+    
+        INPUTS (handled by **self**):
+        eflux - [erg/cm^2/s] The energy flux of precipitating electrons.
+        e     - [eV]         The average energy of precipitating electrons.
+                           A Maxwellian distribution is assumed.
+        OUTPUTS (saved as self[hemi][Ilong], etc.):
+        Ilong  - [R]   Brightness in the LBH long channel. 
+        Ishort - [R]  Brightness in the LBH short channel. 
+
+        The triangular passband is accounted for in all outputs.
+        '''
+
+        # Energy dependence:
+        # Fitted 6th order polynomial coefficients
+        cL = np.array([  3.21561119,   0.31176226,  -9.58963207, -14.42459333,
+                         -8.84892016,  27.75758128,  66.92209348])
+        cS = np.array([ -25.53341678,   33.15085169,   93.14300319,
+                        -66.30232109, -166.32052898,    2.3044538 ,
+                        171.21479873])
+
+        for hemi in ['north', 'south']:
+            x = np.log10(1000*self[hemi]['avee']+1E-4) - 3.0
+            Ilong = np.polyval(cL, x)
+            Ishort = np.polyval(cS, x)
+            
+            # Brightness scales with flux
+            self[hemi]['ilong']  = self[hemi]['eflux'] * Ilong
+            self[hemi]['ishort'] = self[hemi]['eflux'] * Ishort
+        
     def add_dial_plot(self, var, hemi='north', target=None, loc=111,
                       zlim=None, title=None, add_cbar=False, clabel=None,
-                      cmap='hot_r', dolog=False, lat_ticks=15, show_noise=True,
+                      cmap='hot', dolog=False, lat_ticks=15, show_noise=True,
                       *args, **kwargs):
         '''
         Add a dial plot of variable **var** using hemisphere **hemi**.  
@@ -245,7 +287,7 @@ class Aurora(dict):
         clabel : string
             Set label for the color bar, defaults to *var* and associated units.
         cmap : string color map name
-            Set the color map to be used.  Defaults to 'hot_r'.
+            Set the color map to be used.  Defaults to 'hot'.
         lat_ticks : int
             Set the cadence for latitude ticks.  Defaults to 15 degrees.
         show_noise : bool
@@ -417,6 +459,7 @@ class Aurora(dict):
 
         from numpy import pi, cos, sin, matmul, arccos, arctan2
         from scipy.interpolate import LinearNDInterpolator as LinInt
+        from scipy.interpolate import griddata
         
         ### Set hemisphere name ###
         if hemi[0].lower()=='n':
@@ -448,21 +491,38 @@ class Aurora(dict):
             for j in range(self.phi.size):
                     xyz_rot[:,i,j] = matmul(self.xyz[:,i,j], rot)
 
-        # Convert XYZ to new colat/phi:
-        colat = arccos(xyz_rot[2,:,:])
-        phi   = arctan2(xyz_rot[0,:,:], xyz_rot[1,:,:])
-        phi[phi<0] += 2*pi
+        new=np.array( [xyz_rot[0,:,:].ravel(),
+                       xyz_rot[1,:,:].ravel()]).transpose()
+        old=np.array( [self.xyz[0,:,:].ravel(),
+                       self.xyz[1,:,:].ravel()]).transpose()
+        shape = self[hemi]['eflux'].shape
+        for key in self[hemi].keys():
+            if key[-2:] == '_n': continue # do not shift noise.
+            f =  LinInt(new, self[hemi][key].ravel(), fill_value=0)
+            self[hemi][key] = f(old).reshape(shape)
+
+        ### NOTE:  This old portion of the code attempted to do the
+        ### interpolation in colat-phi space.  This produced really weird
+        ### results.  It didn't work very well.
         
-        # Re-bin to original grid:
-        old = np.array( [self.colat_grid.ravel()*np.pi/180,
-                         self.phi_grid.ravel()]).transpose()
-        pts = np.array( [colat.ravel(), phi.ravel()]).transpose()
-        f   =  LinInt(pts, self[hemi]['eflux'].ravel(), fill_value=0)
-        self[hemi]['eflux'] = f(old).reshape(self[hemi]['eflux'].shape)
+        ## Convert XYZ to new colat/phi:
+        #colat = arccos(xyz_rot[2,:,:])
+        #phi   = arctan2(xyz_rot[0,:,:], xyz_rot[1,:,:])
+        #phi[phi<0] += 2*pi
+        #
+        ## Re-bin to original grid:
+        #old = np.array( [self.colat_grid.ravel()*np.pi/180,
+        #                 self.phi_grid.ravel()]).transpose()
+        #pts = np.array( [colat.ravel(), phi.ravel()]).transpose()
+        #shape = self[hemi]['eflux'].shape
+        #for key in self[hemi].keys():
+        #    if key[-2:] == '_n': continue # do not shift noise.
+        #    f =  LinInt(pts, self[hemi][key].ravel(), fill_value=0)
+        #    self[hemi][key] = f(old).reshape(shape)
+        #
+        ##return colat*180/np.pi, phi
 
-        #return colat*180/np.pi, phi
-
-    def add_noise(self, var, SNR=10, hemi='north'):
+    def add_white_noise(self, var, SNR=10, hemi='north'):
         '''
         Add guassian white noise to variable *var* that creates a 
         signal-to-noise (SNR) ratio of *SNR*.
@@ -482,7 +542,13 @@ class Aurora(dict):
         '''
 
         from numpy.random import normal
-
+        
+        ### Set hemisphere name ###
+        if hemi[0].lower()=='n':
+            hemi='north'
+        else:
+            hemi='south'
+        
         # Using SNR = Power_signal / Power_noise, and Power_noise =
         # noise variance for gaussian white noise, calculate the noise
         # standard deviation required to get the desired SNR.
@@ -496,6 +562,48 @@ class Aurora(dict):
         self[hemi][var+'_n'] = noise
 
         return True
+
+    def add_bright_noise(self, hemi='n', t=30, n=256):
+        '''
+        Return realistic 1-sigma noise level for a brightness I. In this 
+        case "realistic" is intended to mean "similar to the performance 
+        we will be showing in the instrument section of the proposal." 
+        Let's double check everything before we assume that statement is 
+        true. This uses worst-case QE which is at the long edge of the long 
+        channel. 
+    
+        Intended usage:
+        hemi = hemisphere to act on.
+        sigI = sigma_brightness(I)
+        I_noisy = I + sigI*np.random.randn()
+        
+        INPUTS:
+        hemi   - string   Which hemisphere to act on.
+        I      - [R]      Brightness on which noise will be added
+        t      - [s]      Integration time (default 30)
+        n      - [pixels] Number of pixels horizontally and vertically 
+                            on the detector (which is assumed to view a 
+                            15x15 deg field of view). (Default 256)
+                        
+        OUTPUTS:
+        Noise is added to both Ilong and Ishort variables.
+    
+        '''
+              
+        ### Set hemisphere name ###
+        if hemi[0].lower()=='n':
+            hemi='north'
+        else:
+            hemi='south'
+        
+        opt_eff = 0.0058
+        fov = 15./n *  np.pi/180. # rad
+        etendue = 3.6 * fov**2 # cm^2 ster
+        count_rate = 1e6/(4*np.pi) * etendue * opt_eff # counts/pixel/sec/R
+        sens = count_rate * t
+
+        for I in ('ilong', 'ishort'):
+            self[hemi][I+'_n'] = np.sqrt(sens*self[hemi][I])/sens
     
     def corr_hemi(self, var, noise=True):
         '''

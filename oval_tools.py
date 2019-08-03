@@ -481,10 +481,16 @@ class Aurora(dict):
         
         ### Shift oval ###
         # Roll: rotation about x-axis:
-        rot = np.array( [[1,         0,          0],
-                         [0, cos(roll), -sin(roll)],
-                         [0, sin(roll),  cos(roll)]] )
-
+        rot_roll = np.array( [[1,         0,          0],
+                              [0, cos(roll), -sin(roll)],
+                              [0, sin(roll),  cos(roll)]] )
+        # Pitch: rotation about y-axis:
+        rot_pitch= np.array( [[ cos(pitch),  0,  sin(pitch)],
+                              [          0,  1,           0],
+                              [-sin(pitch),  0,  cos(pitch)]] )
+        # Combine rotation:
+        rot = matmul( rot_roll, rot_pitch )
+        
         # Apply rotations to XYZ matrix:
         xyz_rot = np.zeros( [3,self.colat.size, self.phi.size] )
         for i in range(self.colat.size):

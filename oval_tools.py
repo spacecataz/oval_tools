@@ -595,7 +595,9 @@ class Aurora(dict):
         Noise is added to both Ilong and Ishort variables.
     
         '''
-              
+
+        from numpy.random import normal
+        
         ### Set hemisphere name ###
         if hemi[0].lower()=='n':
             hemi='north'
@@ -609,8 +611,10 @@ class Aurora(dict):
         sens = count_rate * t
 
         for I in ('ilong', 'ishort'):
-            self[hemi][I+'_n'] = np.sqrt(sens*self[hemi][I])/sens
-    
+            std_dev = np.sqrt(sens*self[hemi][I])/sens
+            std_dev = np.abs(std_dev)
+            self[hemi][I+'_n'] = normal(0, std_dev, self[hemi][I].shape)
+
     def corr_hemi(self, var, noise=True):
         '''
         Compute the cross-correlation matrix between the northern and southern

@@ -110,7 +110,7 @@ class Aurora(dict):
     '''
 
     
-    def __init__(self, filename, *args, **kwargs):
+    def __init__(self, filename, dayglow=None, *args, **kwargs):
         '''
         Instantiate object, read file, populate object.
         '''
@@ -528,6 +528,28 @@ class Aurora(dict):
         #
         ##return colat*180/np.pi, phi
 
+    def add_dayglow(self):
+        '''
+        To both brightness channels, add dayglow.
+        Dayglow should be added **after** any mutations are made.
+        '''
+
+        from numpy import arcsin, cos, sqrt
+
+        # Calculate solar zenith angle:
+        sza = np.arcsin( np.sqrt(self.xyz[1,:,:]**2+self.xyz[2,:,:]**2) )
+
+        # Filter night side:
+        sza[ self.xyz[0,:,:]<0 ] = np.pi/2.
+        
+        for hemi in ['north', 'south']:
+            glow = 350*cos(sza)
+            loc  = self[hemi]['ilong' ]<glow
+            self[hemi]['ilong' ][loc] = glow[loc]
+            glow = 850*cos(sza)
+            loc  = self[hemi]['ishort' ]<glow
+            self[hemi]['ishort'][loc] = glow[loc]
+        
     def add_white_noise(self, var, SNR=10, hemi='north'):
         '''
         Add guassian white noise to variable *var* that creates a 

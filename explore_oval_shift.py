@@ -21,7 +21,13 @@ AE   = glob('data/AE*.save')       # Activity level
 time = np.arange(30, 320, 20)      # Image integration time
 offs = np.arange(0, 15/2+.5, .5)   # offset between north/south oval
 
+def plot_cc(time, offsets, cc_short, cc_long, AE_range):
+    '''
+    Make a plot of CC vs. integration time and oval offset.
+    '''
 
+    plt.contourf(2*offs, time, cc_long)
+    
 # Loop over combinations.  Get CCs.
 for filename in AE[:1]:
     # Create an array to store correlation Coefficients:

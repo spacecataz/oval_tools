@@ -18,7 +18,7 @@ bkgd_noise = 10 # Rayleighs
 
 # Create items over which to iterate:
 AE   = glob('data/AE*.save')       # Activity level
-time = np.arange(30, 320, 20)      # Image integration time
+time = np.arange(30, 200, 20)      # Image integration time
 offs = np.arange(0, 15/2+.5, .5)   # offset between north/south oval
 
 def plot_cc(time, offsets, cc_short, cc_long, AE_range):
@@ -26,7 +26,37 @@ def plot_cc(time, offsets, cc_short, cc_long, AE_range):
     Make a plot of CC vs. integration time and oval offset.
     '''
 
-    plt.contourf(2*offs, time, cc_long)
+    from matplotlib.ticker import MultipleLocator, FuncFormatter
+    
+    fig = plt.figure( figsize=(7.3,4) )
+    fig.subplots_adjust(left=.12,bottom=.16,right=.84,top=.89,wspace=.07)
+    a1, a2 = fig.subplots(1,2)
+
+    levs = np.linspace(0, 1, 25)
+    
+    cont = a1.contourf(2*offs, time, cc_short, levels=levs)
+    cont = a2.contourf(2*offs, time, cc_long,  levels=levs)
+
+    ae = AE_range.split('.')[0].split('_')[1:3]
+    fig.suptitle('Interhemis. Correlation: AE={}-{}$nT$'.format(ae[0], ae[1]))
+    a1.set_title('LBH Short', size=12)
+    a2.set_title('LBH Long',  size=12)
+
+    box = a2.get_position()
+    a3 = fig.add_axes( [box.x1+.01, box.y0, .02, box.height] )
+    cb=fig.colorbar(cont, cax=a3)
+    cb.set_label('2D Corr. Coeff.')
+    #cb.ax.yaxis.set_major_locator(MultipleLocator(.2))
+    
+    for a in (a1,a2):
+        a.xaxis.set_major_locator(MultipleLocator(5))
+        a.yaxis.set_major_locator(MultipleLocator(60))
+        a.xaxis.set_major_formatter(FuncFormatter(
+            lambda x,y: '{:.1f}$^{{\\circ}}$'.format(x)))
+        a.set_xlabel('Oval Separation')
+        a.set_ylabel('Integration Time ($s$)')
+    a2.set_ylabel('')
+    a2.set_yticklabels([])
     
 # Loop over combinations.  Get CCs.
 for filename in AE[:1]:

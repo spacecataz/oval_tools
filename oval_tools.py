@@ -110,7 +110,7 @@ class Aurora(dict):
     '''
 
     
-    def __init__(self, filename, dayglow=None, *args, **kwargs):
+    def __init__(self, filename, *args, **kwargs):
         '''
         Instantiate object, read file, populate object.
         '''
@@ -354,8 +354,8 @@ class Aurora(dict):
 
         ### Create Plot ###
         # Add contour to axes:
-        cont = ax.pcolormesh(self.phi_mesh, self.colat_mesh, z,
-                             cmap=cmap, *args, norm=norm, **kwargs)
+        cont = ax.pcolormesh(self.phi_mesh, self.colat_mesh, z, vmin=zlim[0],
+                             cmap=cmap, vmax=zlim[-1],*args,norm=norm,**kwargs)
         ax.grid() #pcolor turns off grid.  :P
         #cont = ax.contourf(self.phi, self.colat, z, levs, cmap=cmap, *args,
         #                   norm=norm, **kwargs)
@@ -414,8 +414,7 @@ class Aurora(dict):
 
         return True
     
-    def mutate(self, hemi='north', yaw=0., pitch=0.0, roll=0.0, expand=0.,
-               shift_dir=0, shift_lat=0.0):
+    def mutate(self, hemi='north', yaw=0., pitch=0.0, roll=0.0, expand=0.):
         '''
         Mutate an oval picture by rotating, expanding, or shifting.
         All variables (energy flux, ave. energy, etc.) will be affected.
@@ -472,7 +471,7 @@ class Aurora(dict):
         pitch *= pi/180.
             
         ### Expand oval ###
-        lat_shift = int( np.round(expand / self.dLat) )
+        lat_shift = int( np.round(-expand / self.dLat) )
         self._roll(lat_shift, 0, hemi)
 
         ### Rotate oval ###
@@ -528,28 +527,121 @@ class Aurora(dict):
         #
         ##return colat*180/np.pi, phi
 
-    def add_dayglow(self):
+    def add_feature(self, filename, yaw=0., pitch=0.0, roll=0.0, expand=0.):
+        '''
+        Open a feature file and add it to a hemisphere.  The feature can be
+        mutated or flipped over the SM axis before being applied to the 
+        current oval object.
+
+        Note that the mutate kwargs can be either scalars or a two element
+        sequence (list or tuple).  If the latter, it sets how each hemisphere 
+        is to be independently mutated.
+
+        Parameters
+        ==========
+        filename : string
+            A string setting the path of the feature file to load.
+
+        Other Parameters
+        ================
+        expand : float or 2-element sequence of floats
+            Latitude, in degrees, to grow (or shrink if negative) the oval.
+        yaw : float or 2-element sequence of floats
+            Angle (degrees) to rotate the oval picture about the magnetic pole.
+        roll : float or 2-element sequence of floats
+            Angle (degrees) to rotate the picture about the SM X axis.
+        pitch : float or 2-element sequence of floats
+            Angle (degrees) to roate the picture about the SM Y axis.
+
+        '''
+
+        # Convert scalars to lists as necessary:
+        if not issubclass(type(expand), (list, tuple)):
+            expand = [expand, expand]
+        if not issubclass(type(yaw), (list, tuple)):
+            yaw = [yaw, yaw]
+        if not issubclass(type(roll), (list, tuple)):
+            roll = [roll, roll]
+        if not issubclass(type(pitch), (list, tuple)):
+            pitch = [pitch, pitch]
+        
+        # Open feature:
+        feature = Aurora(filename)
+
+        # Mutate feature:
+        feature.mutate('n', yaw=yaw[0], pitch=pitch[0],
+                       roll=roll[0], expand=expand[0])
+        feature.mutate('s', yaw=yaw[1], pitch=pitch[1],
+                       roll=roll[1], expand=expand[1])
+
+        # Add to current object:
+        for hemi in ['north', 'south']:
+            for key in self[hemi]:
+                if '_n' in key: continue # Skip noise.
+                if key in feature[hemi]:
+                    self[hemi][key] = np.sqrt(self[hemi][key]**2
+                                              +feature[hemi][key]**2)
+                
+        
+    def add_dayglow(self, pitch=0):
         '''
         To both brightness channels, add dayglow.
         Dayglow should be added **after** any mutations are made.
+
+        Keyword "pitch" sets the tilt in the x-z plane towards/away from
+        the sun in the northern (southern) hemisphere.
         '''
 
-        from numpy import arcsin, cos, sqrt
+        from numpy import arcsin, sin, cos, sqrt, matmul
 
-        # Calculate solar zenith angle:
-        sza = np.arcsin( np.sqrt(self.xyz[1,:,:]**2+self.xyz[2,:,:]**2) )
+        xyz = self.xyz
 
-        # Filter night side:
-        sza[ self.xyz[0,:,:]<0 ] = np.pi/2.
+        pitch *= -np.pi/180.
+        
+        ### Pitch: rotation about y-axis:
+        ##rot_pitch= np.array( [[ cos(pitch),  0,  sin(pitch)],
+        ##                      [          0,  1,           0],
+        ##                      [-sin(pitch),  0,  cos(pitch)]] )
+        ### Apply rotations to XYZ matrix:
+        ##xyz_rot = np.zeros( [3,self.colat.size, self.phi.size] )
+        ##for i in range(self.colat.size):
+        ##    for j in range(self.phi.size):
+        ##            xyz_rot[:,i,j] = matmul(xyz[:,i,j], rot_pitch)
+        ##
+        ### Calculate solar zenith angle:
+        ##sza = np.arcsin( np.sqrt(xyz[1,:,:]**2+xyz[2,:,:]**2) )
+        ##
+        ### Filter night side:
+        ##sza[ xyz[0,:,:]<0 ] = np.pi/2.
         
         for hemi in ['north', 'south']:
+            if hemi == 'south': pitch*=-1
+            
+            # Pitch: rotation about y-axis:
+            rot_pitch= np.array( [[ cos(pitch),  0,  sin(pitch)],
+                                  [          0,  1,           0],
+                                  [-sin(pitch),  0,  cos(pitch)]] )
+            # Apply rotations to XYZ matrix:
+            xyz_rot = np.zeros( [3,self.colat.size, self.phi.size] )
+            for i in range(self.colat.size):
+                for j in range(self.phi.size):
+                    xyz_rot[:,i,j] = matmul(xyz[:,i,j], rot_pitch)
+
+            # Calculate solar zenith angle:
+            sza = np.arcsin( np.sqrt(xyz_rot[1,:,:]**2+xyz_rot[2,:,:]**2) )
+
+            # Filter night side:
+            sza[ xyz_rot[0,:,:]<0 ] = np.pi/2.
+                    
             glow = 350*cos(sza)
-            loc  = self[hemi]['ilong' ]<glow
-            self[hemi]['ilong' ][loc] = glow[loc]
-            glow = 850*cos(sza)
-            loc  = self[hemi]['ishort' ]<glow
-            self[hemi]['ishort'][loc] = glow[loc]
-        
+            # Old way:
+            #loc  = self[hemi]['ilong' ]<glow 
+            #self[hemi]['ilong' ][loc] = glow[loc]
+            self[hemi]['ilong'] = np.sqrt(self[hemi]['ilong']**2+glow**2)
+            #glow = 850*cos(sza)
+            #loc  = self[hemi]['ishort' ]<glow
+            self[hemi]['ishort'] = np.sqrt(self[hemi]['ishort']**2+glow**2)
+
     def add_white_noise(self, var, SNR=10, hemi='north'):
         '''
         Add guassian white noise to variable *var* that creates a 
@@ -591,7 +683,7 @@ class Aurora(dict):
 
         return True
 
-    def add_bright_noise(self, hemi='n', t=30, n=256):
+    def add_bright_noise(self, hemi='n', t=30, bkgd=10.0, n=256):
         '''
         Return realistic 1-sigma noise level for a brightness I. In this 
         case "realistic" is intended to mean "similar to the performance 
@@ -607,8 +699,8 @@ class Aurora(dict):
         
         INPUTS:
         hemi   - string   Which hemisphere to act on.
-        I      - [R]      Brightness on which noise will be added
         t      - [s]      Integration time (default 30)
+        bkgd   - [R]      Background noise level, added to realistic noise.
         n      - [pixels] Number of pixels horizontally and vertically 
                             on the detector (which is assumed to view a 
                             15x15 deg field of view). (Default 256)
@@ -625,17 +717,21 @@ class Aurora(dict):
             hemi='north'
         else:
             hemi='south'
-        
-        opt_eff = 0.0058
-        fov = 15./n *  np.pi/180. # rad
-        etendue = 3.6 * fov**2 # cm^2 ster
-        count_rate = 1e6/(4*np.pi) * etendue * opt_eff # counts/pixel/sec/R
-        sens = count_rate * t
 
-        for I in ('ilong', 'ishort'):
-            std_dev = np.sqrt(sens*self[hemi][I])/sens
-            std_dev = np.abs(std_dev)
-            self[hemi][I+'_n'] = normal(0, std_dev, self[hemi][I].shape)
+        ### Calculate sensitivity based on 
+        opt_eff    = 0.0058
+        fov        = 15./n *  np.pi/180. # rad
+        etendue    = 3.6 * fov**2 # cm^2 ster
+        count_rate = 1e6/(4*np.pi) * etendue * opt_eff # counts/pixel/sec/R
+        sens       = count_rate * t
+
+        # Loop over both long/short channels
+        for chnl in ('ilong', 'ishort'):
+            I = self[hemi][chnl] # grab the raw brightness:
+            std_dev = np.sqrt(sens*I)/sens
+            std_dev = np.abs(std_dev)  # sometimes, there's negative zeros.
+            self[hemi][chnl+'_n'] =        normal(0,     std_dev,  I.shape) + \
+                                    np.abs(normal(bkgd,  bkgd/2.0, I.shape))
 
     def corr_hemi(self, var, noise=True):
         '''

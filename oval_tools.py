@@ -598,22 +598,6 @@ class Aurora(dict):
 
         pitch *= -np.pi/180.
         
-        ### Pitch: rotation about y-axis:
-        ##rot_pitch= np.array( [[ cos(pitch),  0,  sin(pitch)],
-        ##                      [          0,  1,           0],
-        ##                      [-sin(pitch),  0,  cos(pitch)]] )
-        ### Apply rotations to XYZ matrix:
-        ##xyz_rot = np.zeros( [3,self.colat.size, self.phi.size] )
-        ##for i in range(self.colat.size):
-        ##    for j in range(self.phi.size):
-        ##            xyz_rot[:,i,j] = matmul(xyz[:,i,j], rot_pitch)
-        ##
-        ### Calculate solar zenith angle:
-        ##sza = np.arcsin( np.sqrt(xyz[1,:,:]**2+xyz[2,:,:]**2) )
-        ##
-        ### Filter night side:
-        ##sza[ xyz[0,:,:]<0 ] = np.pi/2.
-        
         for hemi in ['north', 'south']:
             if hemi == 'south': pitch*=-1
             
@@ -634,13 +618,11 @@ class Aurora(dict):
             sza[ xyz_rot[0,:,:]<0 ] = np.pi/2.
                     
             glow = 350*cos(sza)
-            # Old way:
-            #loc  = self[hemi]['ilong' ]<glow 
-            #self[hemi]['ilong' ][loc] = glow[loc]
-            self[hemi]['ilong'] = np.sqrt(self[hemi]['ilong']**2+glow**2)
-            #glow = 850*cos(sza)
-            #loc  = self[hemi]['ishort' ]<glow
-            self[hemi]['ishort'] = np.sqrt(self[hemi]['ishort']**2+glow**2)
+            glow[ np.isnan(glow) ] = 0.0
+            self[hemi]['ilong']    = np.sqrt(self[hemi]['ilong']**2+glow**2)
+            glow = 850*cos(sza)
+            glow[ np.isnan(glow) ] = 0.0
+            self[hemi]['ishort']   = np.sqrt(self[hemi]['ishort']**2+glow**2)
 
     def add_white_noise(self, var, SNR=10, hemi='north'):
         '''

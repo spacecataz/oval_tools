@@ -57,6 +57,8 @@ def plot_cc(time, offsets, cc_short, cc_long, AE_range):
         a.set_ylabel('Integration Time ($s$)')
     a2.set_ylabel('')
     a2.set_yticklabels([])
+
+    return fig
     
 # Loop over combinations.  Get CCs.
 for filename in AE[:1]:
@@ -73,16 +75,20 @@ for filename in AE[:1]:
         data.mutate('n', roll=+o)
         data.mutate('s', roll=-o)
 
-        # Add dayglow:
-        data.add_dayglow(pitch=dip_tilt)
-
         for i, t in enumerate(time):
+            # Add dayglow:
+            data.add_dayglow(pitch=dip_tilt)
+
             # add noise based on time integration:
             data.add_bright_noise('n', bkgd=bkgd_noise, t=t)
             data.add_bright_noise('s', bkgd=bkgd_noise, t=t)
 
+            # Remove dayglow:
+            data.remove_dayglow(pitch=dip_tilt)
+            
             # Save correlation coeffs:
             cc_short[i,j] = data.corr_hemi('ishort').max()
             cc_long[ i,j] = data.corr_hemi('ilong').max()
             
-
+    fig = plot_cc(time, offs, cc_short, cc_long, filename)
+    fig.savefig(outdir+filename.split('/')[-1][:-5]+'.png')

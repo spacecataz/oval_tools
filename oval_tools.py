@@ -590,6 +590,9 @@ class Aurora(dict):
 
         Keyword "pitch" sets the tilt in the x-z plane towards/away from
         the sun in the northern (southern) hemisphere.
+
+        The original dayglow values are stored internally as self.glow
+        so they can later be removed as needed.
         '''
 
         from numpy import arcsin, sin, cos, sqrt, matmul
@@ -597,7 +600,8 @@ class Aurora(dict):
         xyz = self.xyz
 
         pitch *= -np.pi/180.
-        
+
+        self.glow = {}
         for hemi in ['north', 'south']:
             if hemi == 'south': pitch*=-1
             
@@ -619,11 +623,18 @@ class Aurora(dict):
                     
             glow = 350*cos(sza)
             glow[ np.isnan(glow) ] = 0.0
+            self.glow_
             self[hemi]['ilong']    = np.sqrt(self[hemi]['ilong']**2+glow**2)
             glow = 850*cos(sza)
             glow[ np.isnan(glow) ] = 0.0
+            self.glow_south=glow
             self[hemi]['ishort']   = np.sqrt(self[hemi]['ishort']**2+glow**2)
 
+    def remove_dayglow():
+        '''
+        Subtract dayglow values from brightness values.  
+        '''
+            
     def add_white_noise(self, var, SNR=10, hemi='north'):
         '''
         Add guassian white noise to variable *var* that creates a 

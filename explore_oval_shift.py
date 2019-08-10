@@ -21,6 +21,12 @@ AE   = glob('data/AE*.save')       # Activity level
 time = np.arange(30, 200, 20)      # Image integration time
 offs = np.arange(0, 15/2+.5, .5)   # offset between north/south oval
 
+# Create place to put results:
+outdir = 'oval_analysis/'
+if not os.path.exists(outdir):
+    os.mkdir(outdir)
+
+
 def plot_cc(time, offsets, cc_short, cc_long, AE_range):
     '''
     Make a plot of CC vs. integration time and oval offset.
@@ -83,12 +89,12 @@ for filename in AE[:1]:
             data.add_bright_noise('n', bkgd=bkgd_noise, t=t)
             data.add_bright_noise('s', bkgd=bkgd_noise, t=t)
 
-            # Remove dayglow:
-            data.remove_dayglow(pitch=dip_tilt)
+            # remove dayglow, leaving dayglow noise:
+            data.remove_dayglow()
             
             # Save correlation coeffs:
-            cc_short[i,j] = data.corr_hemi('ishort').max()
-            cc_long[ i,j] = data.corr_hemi('ilong').max()
+            cc_short[i,j] = data.corr_hemi('ishort', rect=True).max()
+            cc_long[ i,j] = data.corr_hemi('ilong',  rect=True).max()
             
     fig = plot_cc(time, offs, cc_short, cc_long, filename)
     fig.savefig(outdir+filename.split('/')[-1][:-5]+'.png')

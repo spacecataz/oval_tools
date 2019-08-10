@@ -171,7 +171,15 @@ class Aurora(dict):
                 self.xyz[:,i,j] = sin(theta)*sin(phi), \
                                   sin(theta)*cos(phi), \
                                   cos(theta)
-        
+
+        # Create an evenly spaced X-Y grid for interpolation in cartesian
+        # space (for non-spherically-orthogonal-shifted correlations):
+        rmax = self.xyz[0,:,:].max()
+        npts = max(self.xyz.shape)
+        self.rectgrid = np.meshgrid(np.linspace( -rmax, rmax, npts),
+                                    np.linspace( -rmax, rmax, npts))
+        self.rectgrid = tuple(self.rectgrid) # This makes life easier below.
+                
         # Calculate some variables for interpolating:
         self.phi_grid, self.colat_grid = meshgrid(self.phi, self.colat)
                 
@@ -326,7 +334,7 @@ class Aurora(dict):
         # Get variable to plot.  Include noise if requested.
         if var+'_n' not in self[hemi]:
             self[hemi][var+'_n'] = np.zeros( self[hemi][var].shape )
-        z = self[hemi][var] + show_noise*self[hemi][var+'_n']
+        z = np.abs(self[hemi][var] + show_noise*self[hemi][var+'_n'])
         
         # Get max/min if none given:
         if zlim is None:
@@ -605,7 +613,7 @@ class Aurora(dict):
         for hemi in ['north', 'south']:
             if hemi == 'south': pitch*=-1
             
-            # Pitch: rotation about y-axis:
+            # Pitch: rotation about y-axis: 
             rot_pitch= np.array( [[ cos(pitch),  0,  sin(pitch)],
                                   [          0,  1,           0],
                                   [-sin(pitch),  0,  cos(pitch)]] )
@@ -623,18 +631,26 @@ class Aurora(dict):
                     
             glow = 350*cos(sza)
             glow[ np.isnan(glow) ] = 0.0
-            self.glow_
+            self.glow[hemi+'_ilong'] = glow
             self[hemi]['ilong']    = np.sqrt(self[hemi]['ilong']**2+glow**2)
             glow = 850*cos(sza)
             glow[ np.isnan(glow) ] = 0.0
-            self.glow_south=glow
+            self.glow[hemi+'_ishort'] = glow
             self[hemi]['ishort']   = np.sqrt(self[hemi]['ishort']**2+glow**2)
 
-    def remove_dayglow():
+    def remove_dayglow(self):
         '''
         Subtract dayglow values from brightness values.  
+        This is useful for applying noise to the dayglow, then removing
+        those values.
         '''
-            
+
+        for hemi in ['north', 'south']:
+            for chnl in ['ilong', 'ishort']:
+                self[hemi][chnl] = np.sqrt(self[hemi][chnl]**2 -
+                                           self.glow[hemi+'_'+chnl]**2)
+                
+        
     def add_white_noise(self, var, SNR=10, hemi='north'):
         '''
         Add guassian white noise to variable *var* that creates a 
@@ -726,7 +742,7 @@ class Aurora(dict):
             self[hemi][chnl+'_n'] =        normal(0,     std_dev,  I.shape) + \
                                     np.abs(normal(bkgd,  bkgd/2.0, I.shape))
 
-    def corr_hemi(self, var, noise=True):
+    def corr_hemi(self, var, rect=False, noise=True):
         '''
         Compute the cross-correlation matrix between the northern and southern
         hemisphere for variable *var*.  The noise filter is included in this 
@@ -736,9 +752,22 @@ class Aurora(dict):
         ==========
         var : string
             Name of variable onto which noise will be added.
+
+        Other Parameters
+        ================
+        rect : bool
+            Switch to a rectangular X-Y grid before calculationg the
+            correlation.  This gives better results for shifted ovals.
+            The default is to use the original spherical grid, which gives
+            the best correlation for ovals that are stretched or rotated
+            about the magnetic pole only.
+        noise : bool
+            Include noise to calculation.  Defaults to True.
         '''
 
-        from scipy.signal import correlate2d
+        from scipy.interpolate import griddata
+        from scipy.signal      import correlate2d
+        
 
         # Make sure noise filters are available:
         if var+'_n' not in self['north']:
@@ -746,12 +775,22 @@ class Aurora(dict):
         if var+'_n' not in self['south']:
             self['south'][var+'_n'] = np.zeros( self['south'][var].shape )
 
-        # Get variables.  Add noise to signals.
+        # Extract variables to correlate, add noise if set.
+        x = np.abs(self['north'][var] + self['north'][var+'_n']*noise)
+        y = np.abs(self['south'][var] + self['south'][var+'_n']*noise)
+
+        # Convert to rectilinear system if requested:
+        if rect:
+            # List of points:
+            xy = np.array( [self.xyz[0,:,:].ravel(),
+                            self.xyz[1,:,:].ravel()]).transpose()
+            x = griddata(xy, x.ravel(), self.rectgrid, fill_value=0)
+            y = griddata(xy, y.ravel(), self.rectgrid, fill_value=0)
+        
         # We must subtract means to get normalized (pearson) CC.
-        x = (self['north'][var] + self['north'][var+'_n'])
         x-=x.mean()
-        y = (self['south'][var] + self['south'][var+'_n'])
         y-=y.mean()
 
         # Normalize final answer by standard deviations:
-        return correlate2d(x,y,mode='same',boundary='wrap')/(x.std()*y.std()*x.size)
+        return correlate2d(x,y,mode='same',boundary='wrap') / \
+            (x.std()*y.std()*x.size)

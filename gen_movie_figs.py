@@ -19,8 +19,8 @@ from spacepy.time import Ticktock
 from oval_tools import Aurora
 
 ###  IMPORTANT PARAMTERS  ###
-dLat = .25
-dLon = .25
+dLat = 1#.25
+dLon = 1#.25
 ival = 'ilong'
 
 # Create output directory
@@ -40,7 +40,8 @@ lat = np.arange( -90, 90 +dLat, dLat)
 lon = np.arange(-180, 180+dLon, dLon)
 nlon, nlat = lon.size, lat.size
 lat,  lon  = np.meshgrid( lat, lon )
-xy_geo = np.array([lat.ravel(), lon.ravel()]).transpose()
+xyz_geo = np.zeros( [lon.size*lat.size, 3] )
+#xy_geo = np.array([lat.ravel(), lon.ravel()]).transpose()
 
 # Loop through AE files:
 for f in glob('data/AE*'):
@@ -73,7 +74,9 @@ for f in glob('data/AE*'):
                                data['south'][ival].ravel()
 
     # Create an array that can be used by Coords:
-    xyz = np.array( [ rad, mlat, mlon ] ).transpose()
+    #xyz = np.array( [ rad, mlat, mlon ] ).transpose()
+    xyz = np.zeros( npts, 3)
+    xyz[:,0] = 
     
     # Loop through time:
     for t in time:

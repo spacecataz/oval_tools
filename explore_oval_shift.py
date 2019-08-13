@@ -13,12 +13,12 @@ import matplotlib.pyplot as plt
 from oval_tools import Aurora
 
 # Set some constants:
-dip_tilt   = 9.6
+dip_tilt   = 33
 bkgd_noise = 10 # Rayleighs
 
 # Create items over which to iterate:
 AE   = glob('data/AE*.save')       # Activity level
-time = np.arange(30, 315, 15)      # Image integration time
+time = np.arange(20, 620, 20)      # Image integration time
 offs = np.arange(0, 10/2+.5, .5)   # offset between north/south oval
 
 AE.sort()
@@ -29,9 +29,9 @@ if not os.path.exists(outdir):
     os.mkdir(outdir)
 
 
-def plot_cc(time, offsets, cc_short, cc_long, AE_range):
+def plot_cc(snr, offsets, cc_short, cc_long, AE_range, goal=.8):
     '''
-    Make a plot of CC vs. integration time and oval offset.
+    Make a plot of CC vs. SNR and oval offset.
     '''
 
     from matplotlib.ticker import MultipleLocator, FuncFormatter
@@ -43,21 +43,22 @@ def plot_cc(time, offsets, cc_short, cc_long, AE_range):
     levs = np.linspace(0, 1, 55)
 
     # Add raw contours:
-    cont = a1.contourf(2*offs, time, cc_short, levels=levs)
-    cont = a2.contourf(2*offs, time, cc_long,  levels=levs)
+    cont = a1.contourf(2*offs, snr[0,:], cc_short, levels=levs)
+    cont = a2.contourf(2*offs, snr[1,:], cc_long,  levels=levs)
 
     # Add line at 30s int time
     #a1.hlines(30, 2*offsets.min(),2*offsets.max(), colors='k', linestyle='--')
     #a2.hlines(30, 2*offsets.min(),2*offsets.max(), colors='k', linestyle='--')
     
-    # Add cc=.7 line:
-    a1.contour(2*offs, time, cc_short, levels=[.7], colors='red') 
-    a2.contour(2*offs, time, cc_long,  levels=[.7], colors='red') 
+    # Add cc=goal line:
+    kwargs = {'levels':[goal], 'colors':'red', 'linewidths':2.0}
+    a1.contour(2*offs, snr[0,:], cc_short, **kwargs) 
+    a2.contour(2*offs, snr[1,:], cc_long,  **kwargs) 
 
     # Add labels:
-    a1.text(.92, .92, 'LBH Short', transform=a1.transAxes, size=12,
+    a1.text(.92, .08, 'LBH Short', transform=a1.transAxes, size=12,
             bbox={'fc':'lightgray'}, ha='right')
-    a2.text(.08, .92, 'LBH Long', transform=a2.transAxes, size=12,
+    a2.text(.08, .08, 'LBH Long', transform=a2.transAxes, size=12,
             bbox={'fc':'lightgray'}, ha='left')
     
     ae = AE_range.split('.')[0].split('_')[1:3]
@@ -69,23 +70,23 @@ def plot_cc(time, offsets, cc_short, cc_long, AE_range):
     a3  = fig.add_axes( [box.x1+.01, box.y0, .02, box.height] )
     cb  = fig.colorbar(cont, cax=a3, ticks=np.arange(0, 1.25, .25))
     cb.set_label('2D Corr. Coeff.')
-    a3.hlines(.7, 0,1, colors='red')
-    
+    a3.hlines(goal, 0,1, colors='red')
+
+    fig.text(.5, .015, 'Interhemispheric Oval Offset', ha='center', size=16)
     for a in (a1,a2):
+        a.set_ylim([1.5, 3.1])
         a.xaxis.set_major_locator(MultipleLocator(5))
-        a.yaxis.set_major_locator(MultipleLocator(60))
+        a.yaxis.set_major_locator(MultipleLocator(.5))
         a.xaxis.set_major_formatter(FuncFormatter(
             lambda x,y: '{:.1f}$^{{\\circ}}$'.format(x)))
-        a.set_xlabel('Interhemi. Oval Offset')
-        a.set_ylabel('Integration Time ($s$)')
+        a.set_ylabel('Median SNR')
     a2.set_ylabel('')
     a2.set_yticklabels([])
 
     # Remove last label on left axes:
-    plt.draw()
-    fig.canvas.draw()
-    labels = [tick.get_text() for tick in a1.get_xticklabels()]
-    a1.set_xticklabels(labels[:-2])
+    #labels = [tick.get_text() for tick in a1.get_xticklabels()]
+    plt.setp(a1.get_xticklabels()[-1], visible=False)
+    plt.setp(a1.get_xticklabels()[-1], visible=False)
     
     return fig
 
@@ -103,13 +104,13 @@ def plot_signal(time, data, filename, style='fivethirtyeight'):
         ax  = fig.add_subplot(111)
 
     # Plot the two channels.
-    l1 = ax.plot(time, 1/data[0,:])[0]
-    l2 = ax.plot(time, 1/data[1,:])[0]
+    l1 = ax.plot(time, data[0,:])[0]
+    l2 = ax.plot(time, data[1,:])[0]
 
     # Add labels:
-    ax.text(time[-1], 1/data[0,-1], 'LBH Short', va='center', size=16,
+    ax.text(time[-1], data[0,-1], 'LBH Short', va='center', size=16,
             c=l1.get_color())
-    ax.text(time[-1], 1/data[1,-1], 'LBH Long',  va='center', size=16,
+    ax.text(time[-1], data[1,-1], 'LBH Long',  va='center', size=16,
             c=l2.get_color())
 
     # Adjust axes:
@@ -157,7 +158,7 @@ def plot_hemicomp(data):
     return fig
     
 # Loop over combinations.  Get CCs.
-for filename in AE[:1]:
+for filename in AE:
     # Create an array to store correlation Coefficients:
     cc_short = np.zeros( (time.size, offs.size) )
     cc_long  = np.zeros( (time.size, offs.size) )
@@ -212,15 +213,17 @@ for filename in AE[:1]:
                               np.abs(data['north']['ishort_n']))
             std_long = np.std(data['north']['ilong']  + \
                               np.abs(data['north']['ilong_n']))
-            signal[0,i] = np.median( std_shrt/sig_shrt )
-            signal[1,i] = np.median( std_long/sig_long )
+            signal[0,i] += np.median( sig_shrt/std_shrt )
+            signal[1,i] += np.median( sig_long/std_long )
 
+    signal /= len(offs)
+            
     # Create figures relevant to analysis:
     fig = plot_signal(time, signal, filename, 'fivethirtyeight')
-    fig.savefig(outdir+'SNR_{}_offs{}.png'.format(
-                filename.split('/')[-1][:-5],off_str))
+    fig.savefig(outdir+'SNR_{}.png'.format(
+        filename.split('/')[-1][:-5],off_str))
     plt.close(fig)
             
-    fig = plot_cc(time, offs, cc_short, cc_long, filename)
+    fig = plot_cc(signal, offs, cc_short, cc_long, filename)
     fig.savefig(outdir+filename.split('/')[-1][:-5]+'.png')
     fig.savefig(outdir+filename.split('/')[-1][:-5]+'.pdf')

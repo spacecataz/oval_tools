@@ -87,6 +87,27 @@ def set_target(target, figsize=None, loc=111, polar=False):
 
     return fig, ax
 
+def add_wedge(ax, box, **kwargs):
+    '''
+    Given an Axes object (*ax*) and a tuple that defines the corners of the wedge
+    as (min radius, max radius, min phi, max phi), add a wedge that spans the corners
+    as given.  Extra keyword arguments are handed to *ax.plot*.
+    '''
+
+    # Add the radial edges:
+    ax.plot( (box[2], box[2]), (box[0], box[1]),  **kwargs )
+    ax.plot( (box[3], box[3]), (box[0], box[1]),  **kwargs )
+
+    # Create arcs that span entire range of angles:
+    if box[3]-box[2]>np.pi:#box[2]<box[3]:
+        tMin, tMax = box[3], box[2]+2*np.pi
+    else:
+        tMin, tMax = box[2], box[3]
+    theta = np.linspace(tMin, tMax)
+        
+    # Add the arcs:
+    ax.plot( theta, box[0]+np.zeros(theta.size), **kwargs)
+    ax.plot( theta, box[1]+np.zeros(theta.size), **kwargs)
 
 class Aurora(dict):
     '''
@@ -238,7 +259,7 @@ class Aurora(dict):
     def add_dial_plot(self, var, hemi='north', target=None, loc=111,
                       zlim=None, title=None, add_cbar=False, clabel=None,
                       cmap='hot', dolog=False, lat_ticks=15, show_noise=True,
-                      *args, **kwargs):
+                      feature=True, *args, **kwargs):
         '''
         Add a dial plot of variable **var** using hemisphere **hemi**.  
         The **target** and **loc** syntax sets the default location of the
@@ -300,6 +321,8 @@ class Aurora(dict):
             Set the cadence for latitude ticks.  Defaults to 15 degrees.
         show_noise : bool
             Control if image noise is included on plot.  Default is True.
+        feature : bool
+            Show box around added feature.
 
         Examples:
         =========
@@ -403,6 +426,14 @@ class Aurora(dict):
             txt = '{:02.0f}'.format(theta)+r'$^{\circ}$'
             ax.text(pi/4., 90.-theta, txt, color='w', weight='heavy', **opts)
             ax.text(pi/4., 90.-theta, txt, color='k', weight='light', **opts)
+
+        # Add feature box (if a feature has been added):
+        if feature and hasattr(self, 'nfbox'):
+            if hemi=='north':
+                box = self.nfbox
+            else:
+                box = self.sfbox
+            add_wedge(ax, box, c='dodgerblue', lw=2.5)
         
         # Set title:
         if title: ax.set_title(title)
@@ -467,6 +498,11 @@ class Aurora(dict):
         from numpy import pi, cos, sin, matmul, arccos, arctan2
         from scipy.interpolate import LinearNDInterpolator as LinInt
         from scipy.interpolate import griddata
+
+        # If we have a feature, mutate that first:
+        if hasattr(self, 'feature'):
+            self.feature.mutate(hemi=hemi, yaw=yaw, pitch=pitch, roll=roll, expand=expand)
+            self.set_feature_bounds()
         
         ### Set hemisphere name ###
         if hemi[0].lower()=='n':
@@ -513,7 +549,7 @@ class Aurora(dict):
             if key[-2:] == '_n': continue # do not shift noise.
             f =  LinInt(new, self[hemi][key].ravel(), fill_value=0)
             self[hemi][key] = f(old).reshape(shape)
-
+        
         ### NOTE:  This old portion of the code attempted to do the
         ### interpolation in colat-phi space.  This produced really weird
         ### results.  It didn't work very well.
@@ -582,6 +618,12 @@ class Aurora(dict):
         feature.mutate('s', yaw=yaw[1], pitch=pitch[1],
                        roll=roll[1], expand=expand[1])
 
+        # Save the feature internally:
+        self.feature = feature
+
+        # Set the boundary of the feature:
+        self.set_feature_bounds()
+        
         # Add to current object:
         for hemi in ['north', 'south']:
             for key in self[hemi]:
@@ -590,6 +632,45 @@ class Aurora(dict):
                     self[hemi][key] = np.sqrt(self[hemi][key]**2
                                               +feature[hemi][key]**2)
                 
+
+    def set_feature_bounds(self, var='ilong', sens=0.1):
+        '''
+        Find the binding box and associated indices for the current location of the
+        auroral feature.  Store for internal use.
+
+        The feature is identified by the region where variable (*var*) crosses a 
+        threshold value (*sens*).
+
+        The default behavior is to use "ilong" as the search variable and "0.1" as the
+        threshold value.
+        '''
+
+        # Generate feature box for each hemisphere (coords and indices):
+        # Northern hemi:
+        loc = self.feature['north']['ilong']>0.1
+        fbox = [np.min(self.colat_grid[loc]), np.max(self.colat_grid[loc]),
+                np.min(self.phi_grid[loc]),   np.max(self.phi_grid[loc])   ]
+        floc = [np.where(self.colat==fbox[0])[0], np.where(self.colat==fbox[1])[0],
+                np.where(self.phi  ==fbox[2])[0], np.where(self.phi  ==fbox[3])[0]]
+        # Adjust longitude if feature wraps over 0-degrees:
+        if fbox[2]==self.phi.min() and fbox[3]==self.phi.max():
+            fbox[2]=np.max(self.phi_grid[(loc)&(self.phi_grid<np.pi)])
+            fbox[3]=np.min(self.phi_grid[(loc)&(self.phi_grid>np.pi)])
+        # Save internally.
+        self.nfbox, self.nfloc = fbox, floc
+
+        # Southern hemi:
+        loc = self.feature['south']['ilong']>0.1
+        fbox = [self.colat_grid[loc].min(), self.colat_grid[loc].max(),
+                self.phi_grid[  loc].min(), self.phi_grid[  loc].max()]
+        floc = [np.where(self.colat==fbox[0])[0], np.where(self.colat==fbox[1])[0],
+                np.where(self.phi  ==fbox[2])[0], np.where(self.phi  ==fbox[3])[0]]
+        # Adjust longitude if feature wraps over 0-degrees:
+        if fbox[2]==self.phi.min() and fbox[3]==self.phi.max():
+            fbox[2]=np.max(self.phi_grid[(loc)&(self.phi_grid<np.pi)])
+            fbox[3]=np.min(self.phi_grid[(loc)&(self.phi_grid>np.pi)])
+        # Save internally.
+        self.sfbox, self.sfloc = fbox, floc
         
     def add_dayglow(self, pitch=0):
         '''

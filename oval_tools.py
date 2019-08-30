@@ -99,8 +99,8 @@ def add_wedge(ax, box, **kwargs):
     ax.plot( (box[3], box[3]), (box[0], box[1]),  **kwargs )
 
     # Create arcs that span entire range of angles:
-    if box[3]-box[2]>np.pi:#box[2]<box[3]:
-        tMin, tMax = box[3], box[2]+2*np.pi
+    if box[3]-box[2]<0:#box[2]<box[3]:
+        tMin, tMax = box[2], box[3]+2*np.pi#box[3], box[2]+2*np.pi
     else:
         tMin, tMax = box[2], box[3]
     theta = np.linspace(tMin, tMax)
@@ -646,16 +646,19 @@ class Aurora(dict):
         '''
 
         # Generate feature box for each hemisphere (coords and indices):
-        # Northern hemi:
+        # Northern hemi: (asscalar necessary to avoid single-value arrays)
         loc = self.feature['north']['ilong']>0.1
         fbox = [np.min(self.colat_grid[loc]), np.max(self.colat_grid[loc]),
                 np.min(self.phi_grid[loc]),   np.max(self.phi_grid[loc])   ]
-        floc = [np.where(self.colat==fbox[0])[0], np.where(self.colat==fbox[1])[0],
-                np.where(self.phi  ==fbox[2])[0], np.where(self.phi  ==fbox[3])[0]]
         # Adjust longitude if feature wraps over 0-degrees:
         if fbox[2]==self.phi.min() and fbox[3]==self.phi.max():
-            fbox[2]=np.max(self.phi_grid[(loc)&(self.phi_grid<np.pi)])
-            fbox[3]=np.min(self.phi_grid[(loc)&(self.phi_grid>np.pi)])
+            fbox[2]=np.min(self.phi_grid[(loc)&(self.phi_grid>np.pi)])
+            fbox[3]=np.max(self.phi_grid[(loc)&(self.phi_grid<np.pi)])
+        # Get associated indices:
+        floc = [np.asscalar(np.where(self.colat==fbox[1])[0]),  # We flip max/min for colat...
+                np.asscalar(np.where(self.colat==fbox[0])[0]),
+                np.asscalar(np.where(self.phi  ==fbox[2])[0]),
+                np.asscalar(np.where(self.phi  ==fbox[3])[0])]
         # Save internally.
         self.nfbox, self.nfloc = fbox, floc
 
@@ -663,12 +666,15 @@ class Aurora(dict):
         loc = self.feature['south']['ilong']>0.1
         fbox = [self.colat_grid[loc].min(), self.colat_grid[loc].max(),
                 self.phi_grid[  loc].min(), self.phi_grid[  loc].max()]
-        floc = [np.where(self.colat==fbox[0])[0], np.where(self.colat==fbox[1])[0],
-                np.where(self.phi  ==fbox[2])[0], np.where(self.phi  ==fbox[3])[0]]
         # Adjust longitude if feature wraps over 0-degrees:
         if fbox[2]==self.phi.min() and fbox[3]==self.phi.max():
-            fbox[2]=np.max(self.phi_grid[(loc)&(self.phi_grid<np.pi)])
-            fbox[3]=np.min(self.phi_grid[(loc)&(self.phi_grid>np.pi)])
+            fbox[2]=np.min(self.phi_grid[(loc)&(self.phi_grid>np.pi)])
+            fbox[3]=np.max(self.phi_grid[(loc)&(self.phi_grid<np.pi)])
+        # Get associated indices:
+        floc = [np.asscalar(np.where(self.colat==fbox[1])[0]),
+                np.asscalar(np.where(self.colat==fbox[0])[0]),
+                np.asscalar(np.where(self.phi  ==fbox[2])[0]),
+                np.asscalar(np.where(self.phi  ==fbox[3])[0])]
         # Save internally.
         self.sfbox, self.sfloc = fbox, floc
         
@@ -875,3 +881,89 @@ class Aurora(dict):
         # Normalize final answer by standard deviations:
         return correlate2d(x,y,mode='same',boundary='wrap') / \
             (x.std()*y.std()*x.size)
+
+    def corr_feature(self, var, hemi='n', rect=False, noise=True, flip=True):
+        '''
+        Compute the cross-correlation matrix between a feature (e.g., arc or streamer)
+        in one hemisphere with the entire oval in the opposite hemisphere.  This is
+        essentially a test of feature identification between hemispheres.
+
+        In other words, a template for pattern matching is taken from one hemisphere.
+        The template is then cross-correlated with the opposite hemisphere.  
+
+        The section of the source hemisphere that is considered the template region
+        is set automatically when a feature is loaded via *add_template*.
+
+        Parameters
+        ==========
+        var : string
+            Name of variable onto which noise will be added.
+
+        Other Parameters
+        ================
+        hemi : string
+            This sets the source hemisphere.  To compare the feature from the
+            northern hemisphere to the entire southern hemisphere, 
+        rect : bool
+            Switch to a rectangular X-Y grid before calculationg the
+            correlation.  This gives better results for shifted ovals.
+            The default is to use the original spherical grid, which gives
+            the best correlation for ovals that are stretched or rotated
+            about the magnetic pole only.
+        noise : bool
+            Include noise to calculation.  Defaults to True.
+
+        Returns
+        =======
+        max_corr : float
+            The maximum correlation across all lags.
+        position : tuple
+            The longitude and colatitude of max_corr (mainly for plotting purposes).
+        '''
+
+        from scipy.interpolate import griddata
+        from scipy.signal      import correlate2d
+        
+        # Set hemisphere name and get feature bounds:
+        if hemi[0].lower()=='n':
+            hemi='north'
+            box = self.nfbox
+            loc = self.nfloc
+        else:
+            hemi='south'
+            box = self.sfbox
+            loc = self.sfloc
+
+        # Make sure noise filters are available:
+        if var+'_n' not in self['north']:
+            self['north'][var+'_n'] = np.zeros( self['north'][var].shape )
+        if var+'_n' not in self['south']:
+            self['south'][var+'_n'] = np.zeros( self['south'][var].shape )
+
+        # Extract variables to correlate, add noise if set.
+        # "X" is template, "Y" is full image.
+        x = np.abs(self[hemi][var] + self[hemi][var+'_n']*noise)
+        y = np.abs(self[hemi][var] + self[hemi][var+'_n']*noise)
+
+        # Reduce template down to feature only.  Note that to overcome wraps around
+        # phi=0, we use the roll function.  Set phimax to roll over lon=0.
+        phimax=loc[3]-loc[2]
+        if phimax<0: phimax = self.phi.size-phimax
+        x = np.roll(x, -loc[2], 1)[loc[0]:loc[1],:phimax]
+        
+        # Convert to rectilinear system if requested:
+        if rect:
+            # List of points:
+            xy = np.array( [self.xyz[0,:,:].ravel(),
+                            self.xyz[1,:,:].ravel()]).transpose()
+            x = griddata(xy, x.ravel(), self.rectgrid, fill_value=0)
+            y = griddata(xy, y.ravel(), self.rectgrid, fill_value=0)
+        
+        # We must subtract means to get normalized (pearson) CC.
+        x-=x.mean()
+        y-=y.mean()
+
+        # Normalize final answer by standard deviations:
+        return correlate2d(x,y,mode='valid',boundary='wrap') / \
+            (x.std()*y.std()*x.size)
+

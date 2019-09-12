@@ -571,7 +571,7 @@ class Aurora(dict):
         #
         ##return colat*180/np.pi, phi
 
-    def add_feature(self, filename, yaw=0., pitch=0.0, roll=0.0, expand=0.):
+    def add_feature(self, filename, yaw=0., pitch=0.0, roll=0.0, expand=0., sens=0.1):
         '''
         Open a feature file and add it to a hemisphere.  The feature can be
         mutated or flipped over the SM axis before being applied to the 
@@ -596,7 +596,10 @@ class Aurora(dict):
             Angle (degrees) to rotate the picture about the SM X axis.
         pitch : float or 2-element sequence of floats
             Angle (degrees) to roate the picture about the SM Y axis.
-
+        sens : float
+            Set the brightness in the i-long channel for locating the bounding
+            box of the feature.  This is used for feature finding across
+            hemispheres.
         '''
 
         # Convert scalars to lists as necessary:
@@ -611,7 +614,9 @@ class Aurora(dict):
         
         # Open feature:
         feature = Aurora(filename)
-
+        # Save sensitivity:
+        feature.sens = sens
+        
         # Mutate feature:
         feature.mutate('n', yaw=yaw[0], pitch=pitch[0],
                        roll=roll[0], expand=expand[0])
@@ -633,7 +638,7 @@ class Aurora(dict):
                                               +feature[hemi][key]**2)
                 
 
-    def set_feature_bounds(self, var='ilong', sens=0.1):
+    def set_feature_bounds(self, var='ilong'):
         '''
         Find the binding box and associated indices for the current location of the
         auroral feature.  Store for internal use.
@@ -647,7 +652,7 @@ class Aurora(dict):
 
         # Generate feature box for each hemisphere (coords and indices):
         # Northern hemi: (asscalar necessary to avoid single-value arrays)
-        loc = self.feature['north']['ilong']>0.1
+        loc = self.feature['north']['ilong']>self.feature.sens
         fbox = [np.min(self.colat_grid[loc]), np.max(self.colat_grid[loc]),
                 np.min(self.phi_grid[loc]),   np.max(self.phi_grid[loc])   ]
         # Adjust longitude if feature wraps over 0-degrees:
@@ -663,7 +668,7 @@ class Aurora(dict):
         self.nfbox, self.nfloc = fbox, floc
 
         # Southern hemi:
-        loc = self.feature['south']['ilong']>0.1
+        loc = self.feature['south']['ilong']>self.feature.sens
         fbox = [self.colat_grid[loc].min(), self.colat_grid[loc].max(),
                 self.phi_grid[  loc].min(), self.phi_grid[  loc].max()]
         # Adjust longitude if feature wraps over 0-degrees:

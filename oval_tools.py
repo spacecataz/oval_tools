@@ -887,7 +887,7 @@ class Aurora(dict):
         return correlate2d(x,y,mode='same',boundary='wrap') / \
             (x.std()*y.std()*x.size)
 
-    def corr_feature(self, var, hemi='n', rect=False, noise=True, flip=True):
+    def corr_feature(self, var, hemi='n', rect=False, noise=True, flip=True, debug=False):
         '''
         Compute the cross-correlation matrix between a feature (e.g., arc or streamer)
         in one hemisphere with the entire oval in the opposite hemisphere.  This is
@@ -908,7 +908,7 @@ class Aurora(dict):
         ================
         hemi : string
             This sets the source hemisphere.  To compare the feature from the
-            northern hemisphere to the entire southern hemisphere, 
+            northern hemisphere to the entire southern hemisphere, use hemi='n'.
         rect : bool
             Switch to a rectangular X-Y grid before calculationg the
             correlation.  This gives better results for shifted ovals.
@@ -917,6 +917,9 @@ class Aurora(dict):
             about the magnetic pole only.
         noise : bool
             Include noise to calculation.  Defaults to True.
+        flip : bool
+            Flip the template feature as a function of longitude.
+            This is useful for features that are flipped over hemispheres.
 
         Returns
         =======
@@ -932,10 +935,12 @@ class Aurora(dict):
         # Set hemisphere name and get feature bounds:
         if hemi[0].lower()=='n':
             hemi='north'
+            imeh='south'
             box = self.nfbox
             loc = self.nfloc
         else:
             hemi='south'
+            imeh='north'
             box = self.sfbox
             loc = self.sfloc
 
@@ -955,6 +960,9 @@ class Aurora(dict):
         phimax=loc[3]-loc[2]
         if phimax<0: phimax = self.phi.size-phimax
         x = np.roll(x, -loc[2], 1)[loc[0]:loc[1],:phimax]
+
+        if flip:
+            x = x[:, ::-1]
         
         # Convert to rectilinear system if requested:
         if rect:
@@ -968,7 +976,15 @@ class Aurora(dict):
         x-=x.mean()
         y-=y.mean()
 
+        # Make some debug plots:
+        if debug:
+            f = plt.figure()
+            a1, a2, a3 = f.subplots(1, 3)
+            a1.imshow(np.abs(self[hemi][var] + self[hemi][var+'_n']*noise))
+            a2.imshow(x)
+            a3.imshow(y)
+        
         # Normalize final answer by standard deviations:
-        return correlate2d(x,y,mode='valid',boundary='wrap') / \
-            (x.std()*y.std()*x.size)
+        corr = correlate2d(x,y,mode='valid',boundary='wrap')
+        return corr / (x.std()*y.std()*y.size)
 

@@ -259,7 +259,7 @@ class Aurora(dict):
     def add_dial_plot(self, var, hemi='north', target=None, loc=111,
                       zlim=None, title=None, add_cbar=False, clabel=None,
                       cmap='hot', dolog=False, lat_ticks=15, show_noise=True,
-                      feature=True, *args, **kwargs):
+                      feature=False, *args, **kwargs):
         '''
         Add a dial plot of variable **var** using hemisphere **hemi**.  
         The **target** and **loc** syntax sets the default location of the
@@ -930,7 +930,8 @@ class Aurora(dict):
         '''
 
         from scipy.interpolate import griddata
-        from scipy.signal      import correlate2d
+        from skimage.feature   import match_template
+        #from scipy.signal      import correlate2d
         
         # Set hemisphere name and get feature bounds:
         if hemi[0].lower()=='n':
@@ -953,7 +954,7 @@ class Aurora(dict):
         # Extract variables to correlate, add noise if set.
         # "X" is template, "Y" is full image.
         x = np.abs(self[hemi][var] + self[hemi][var+'_n']*noise)
-        y = np.abs(self[hemi][var] + self[hemi][var+'_n']*noise)
+        y = np.abs(self[imeh][var] + self[imeh][var+'_n']*noise)
 
         # Reduce template down to feature only.  Note that to overcome wraps around
         # phi=0, we use the roll function.  Set phimax to roll over lon=0.
@@ -972,10 +973,6 @@ class Aurora(dict):
             x = griddata(xy, x.ravel(), self.rectgrid, fill_value=0)
             y = griddata(xy, y.ravel(), self.rectgrid, fill_value=0)
         
-        # We must subtract means to get normalized (pearson) CC.
-        x-=x.mean()
-        y-=y.mean()
-
         # Make some debug plots:
         if debug:
             f = plt.figure()
@@ -983,8 +980,10 @@ class Aurora(dict):
             a1.imshow(np.abs(self[hemi][var] + self[hemi][var+'_n']*noise))
             a2.imshow(x)
             a3.imshow(y)
-        
-        # Normalize final answer by standard deviations:
-        corr = correlate2d(x,y,mode='valid',boundary='wrap')
-        return corr / (x.std()*y.std()*y.size)
+
+        # Note this documentation for corr coeff using SciKit:
+        # https://scikit-image.org/docs/0.9.x/auto_examples/plot_template.html
+        # Return normalized correlations:
+        return match_template(y, x, pad_input=True)
+
 

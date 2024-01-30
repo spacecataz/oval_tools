@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Set a good style sheet because we are not savages.
-plt.style.use('seaborn-talk')
+plt.style.use('seaborn-v0_8-talk')
 
 # Some default labels for plotting:
 labels = {'eflux': 'Energy Flux', 'avee': 'Avg. Energy',
@@ -120,6 +120,23 @@ class Aurora(dict):
 
     Upon instantiation, an IDL save file (indicated with argument *filename*)
     will be loaded into the object for use with the object methods.
+
+    Data within Aurora objects is saved into two sub-objects, one for each
+    hemisphere. Within each hemisphere, actual values are stored. For
+    example, to access energy flux within the southern hemisphere:
+
+    >>> import oval_tools as oval
+    >>> aurora = oval.Aurora('data/AE_150_200.save')
+    >>> aurora['south']['eflux']
+
+    Values contained within the object are as follows:
+
+    | Key      | Value                                                     |
+    |----------|-----------------------------------------------------------|
+    | avee     | Average energy for precipitating electrons [eV]           |
+    | eflux    | Energy flux for precipitating electrons [erg/cm^2/s]      |
+    | ilong    | Brightness in the LBH long channel [R]                    |
+    | ishort   | Brightness in the LBH short channel [R]                   |
 
     Noise can be added to any variable via the "add_noise" method.  The noise
     is stored separately as self[var+'_n'], so that the original data can
@@ -344,9 +361,7 @@ class Aurora(dict):
         from numpy import pi
         import matplotlib as mpl
         from matplotlib.colors import LogNorm
-        from matplotlib.ticker import LogLocator, \
-            LogFormatterMathtext, MultipleLocator
-
+        from matplotlib.ticker import MultipleLocator
 
         # ## Plot Prep ###
         # Set hemisphere name:
@@ -379,12 +394,12 @@ class Aurora(dict):
             #                                np.log10(zlim[1]), nlev))
             z = np.where(z > zlim[0], z, 1.01*zlim[0])
             norm = LogNorm()
-            ticks = LogLocator()
-            fmt = LogFormatterMathtext()
+            # ticks = LogLocator()
+            # fmt = LogFormatterMathtext()
         else:
             # LEVS NOT NEEDED FOR PCOLORMESH
             # levs = np.linspace(zlim[0], zlim[1], nlev)
-            norm, ticks, fmt = None, None, None
+            norm = None  # ticks, fmt = None, None
 
         # ## Create Plot ###
         # Add contour to axes:
@@ -454,7 +469,7 @@ class Aurora(dict):
         from numpy import roll
 
         for x in self[hemi].keys():
-            self[hemi][x] = roll(self[hemi][x], [nLat, nMlt], [0,1])
+            self[hemi][x] = roll(self[hemi][x], [nLat, nMlt], [0, 1])
 
         return True
 
@@ -533,9 +548,9 @@ class Aurora(dict):
                              [0, cos(roll), -sin(roll)],
                              [0, sin(roll),  cos(roll)]])
         # Pitch: rotation about y-axis:
-        rot_pitch = np.array( [[cos(pitch), 0, sin(pitch)],
-                               [0, 1, 0],
-                               [-sin(pitch), 0, cos(pitch)]])
+        rot_pitch = np.array([[cos(pitch), 0, sin(pitch)],
+                              [0, 1, 0],
+                              [-sin(pitch), 0, cos(pitch)]])
         # Combine rotation:
         rot = matmul(rot_roll, rot_pitch)
 
@@ -556,7 +571,8 @@ class Aurora(dict):
             f = LinInt(new, self[hemi][key].ravel(), fill_value=0)
             self[hemi][key] = f(old).reshape(shape)
 
-    def add_feature(self, filename, yaw=0., pitch=0.0, roll=0.0, expand=0., sens=0.1):
+    def add_feature(self, filename, yaw=0., pitch=0.0, roll=0.0,
+                    expand=0., sens=0.1):
         '''
         Open a feature file and add it to a hemisphere.  The feature can be
         mutated or flipped over the SM axis before being applied to the
@@ -618,7 +634,7 @@ class Aurora(dict):
         for hemi in ['north', 'south']:
             for key in self[hemi]:
                 if '_n' in key:
-                    continue # Skip noise.
+                    continue  # Skip noise.
                 if key in feature[hemi]:
                     self[hemi][key] = np.sqrt(self[hemi][key]**2
                                               + feature[hemi][key]**2)
@@ -641,7 +657,7 @@ class Aurora(dict):
         fbox = [np.min(self.colat_grid[loc]), np.max(self.colat_grid[loc]),
                 np.min(self.phi_grid[loc]),   np.max(self.phi_grid[loc])]
         # Adjust longitude if feature wraps over 0-degrees:
-        if fbox[2]==self.phi.min() and fbox[3] == self.phi.max():
+        if fbox[2] == self.phi.min() and fbox[3] == self.phi.max():
             fbox[2] = np.min(self.phi_grid[(loc) & (self.phi_grid > np.pi)])
             fbox[3] = np.max(self.phi_grid[(loc) & (self.phi_grid < np.pi)])
         # Get associated indices, we flip max/min for colat...
@@ -689,7 +705,7 @@ class Aurora(dict):
         self.glow = {}
         for hemi in ['north', 'south']:
             if hemi == 'south':
-                pitch*=-1
+                pitch *= -1
 
             # Pitch: rotation about y-axis:
             rot_pitch = np.array([[cos(pitch),  0,  sin(pitch)],
@@ -813,11 +829,11 @@ class Aurora(dict):
 
         # Loop over both long/short channels
         for chnl in ('ilong', 'ishort'):
-            I = self[hemi][chnl]  # grab the raw brightness:
-            std_dev = np.sqrt(sens*I)/sens
+            I_raw = self[hemi][chnl]  # grab the raw brightness:
+            std_dev = np.sqrt(sens*I_raw)/sens
             std_dev = np.abs(std_dev)  # sometimes, there's negative zeros.
-            self[hemi][chnl+'_n'] = normal(0,     std_dev,  I.shape) + \
-                np.abs(normal(bkgd,  bkgd/2.0, I.shape))
+            self[hemi][chnl+'_n'] = normal(0,     std_dev,  I_raw.shape) + \
+                np.abs(normal(bkgd,  bkgd/2.0, I_raw.shape))
 
     def corr_hemi(self, var, rect=False, noise=True):
         '''
@@ -920,18 +936,18 @@ class Aurora(dict):
         '''
 
         from scipy.interpolate import griddata
-        from skimage.feature   import match_template
+        from skimage.feature import match_template
 
         # Set hemisphere name and get feature bounds:
         if hemi[0].lower() == 'n':
             hemi = 'north'
             imeh = 'south'
-            box = self.nfbox
+            # box = self.nfbox
             loc = self.nfloc
         else:
             hemi = 'south'
             imeh = 'north'
-            box = self.sfbox
+            # box = self.sfbox
             loc = self.sfloc
 
         # Make sure noise filters are available:
@@ -976,5 +992,3 @@ class Aurora(dict):
         # https://scikit-image.org/docs/0.9.x/auto_examples/plot_template.html
         # Return normalized correlations:
         return match_template(y, x, pad_input=True)
-
-

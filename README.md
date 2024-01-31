@@ -7,7 +7,8 @@ characteristics.
 The package is terribly simple- just add **oval_tools.py** to your Python path.
 
 ## Prerequisites
-Prereqs are simple: keep your Python, Numpy, Matplotlib, and Scipy up to date.
+Prereqs include standard packages: keep your Python, Numpy, Matplotlib, and Scipy up to date.
+For creating geographic maps, both Spacepy and Cartopy are required.
 
 |Package | Version |
 |--------|---------|
@@ -15,6 +16,8 @@ Prereqs are simple: keep your Python, Numpy, Matplotlib, and Scipy up to date.
 |Numpy  | 1.16.X |
 |Matplotlib | 3.1.X |
 |Scipy | 1.3.X |
+|Cartopy | 0.22.X |
+|Spacepy | 0.4.X |
 
 Older versions may work, but I'm not about to test that today.
 

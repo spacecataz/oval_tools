@@ -4,6 +4,8 @@ This is a module for manipulating and exploring auroral oval information for
 the purpose of investigating observational requirements.
 '''
 
+import datetime as dt
+
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -29,7 +31,7 @@ def cc2d(f, t):
     return corr/variance
 
 
-def set_target(target, figsize=None, loc=111, polar=False):
+def set_target(target, figsize=None, loc=111, polar=False, projection=None):
     '''
     This is a helper function for plotting that makes building multi-panel
     plots easier.
@@ -85,7 +87,7 @@ def set_target(target, figsize=None, loc=111, polar=False):
     # Is target something else?  Make new everything.
     else:
         fig = plt.figure(figsize=figsize)
-        ax = fig.add_subplot(loc, polar=polar)
+        ax = fig.add_subplot(loc, polar=polar, projection=projection)
 
     return fig, ax
 
@@ -141,6 +143,9 @@ class Aurora(dict):
     Noise can be added to any variable via the "add_noise" method.  The noise
     is stored separately as self[var+'_n'], so that the original data can
     still be accessed.
+
+    Position is stored at the top object level using keys 'lat' and 'mlt'
+    for SM latitude and local time.
 
     Parameters
     ==========
@@ -275,6 +280,46 @@ class Aurora(dict):
             # Brightness scales with flux
             self[hemi]['ilong'] = self[hemi]['eflux'] * Ilong
             self[hemi]['ishort'] = self[hemi]['eflux'] * Ishort
+
+    def calc_geo(self, epoch):
+        '''
+        Using spacepy's coordinate transform library, calculate geographic
+        latitude and longitude for the given epoch. Results are stored for
+        the northern and southern hemisphere object as 'lat_geo' and
+        'lon_geo', both in degrees.
+        '''
+
+        from spacepy.time import Ticktock
+        from spacepy import coordinates as coord
+
+        # Get info about grid and produce a full mesh in SM coordinates:
+        nlat, nlon = self['lat'].size, self['mlt'].size
+        npts = nlat * nlon
+        # lat, mlt = np.meshgrid(self['mlt'], self['lat'])
+        mlt, lat = np.meshgrid(self['mlt'] + 180., self['lat'])
+
+        # Convert into [npts, 3] array for coord transform.
+        mag = np.array([npts * [1.], lat.flatten(), 15.*mlt.flatten()]).T
+
+        # Create time ticks:
+        ticks = Ticktock(npts*[epoch], 'ISO')
+
+        # Northern Hemisphere:
+        # Create coord object:
+        cvals = coord.Coords(mag, 'SM', 'sph', ticks=ticks)
+        # Convert coords and stash:
+        geo = cvals.convert('GEO', 'sph')
+        self['north']['lat_geo'] = geo.lati.reshape([nlat, nlon])
+        self['north']['lon_geo'] = geo.long.reshape([nlat, nlon])
+
+        # Southern Hemisphere:
+        # Flip latitude:
+        mag[:, 1] *= -1
+        # Create coord object:
+        cvals = coord.Coords(mag, 'SM', 'sph', ticks=ticks)
+        geo = cvals.convert('GEO', 'sph')
+        self['south']['lat_geo'] = geo.lati.reshape([nlat, nlon])
+        self['south']['lon_geo'] = geo.long.reshape([nlat, nlon])
 
     def add_dial_plot(self, var, hemi='north', target=None, loc=111,
                       zlim=None, title=None, add_cbar=False, clabel=None,
@@ -992,3 +1037,107 @@ class Aurora(dict):
         # https://scikit-image.org/docs/0.9.x/auto_examples/plot_template.html
         # Return normalized correlations:
         return match_template(y, x, pad_input=True)
+
+    def plot_map(self, var, epoch=dt.datetime(1999, 9, 15, 6, 0, 0),
+                 nlevs=15, alpha=.2, vmin=None, vmax=None, cmap='Greens',
+                 title=None, target=None, loc=111, **kwargs):
+        '''
+        Create a plot of the aurora value *var* over the globe in geographic
+        latitude and longitude. SM aurora values are rotated into geographic
+        coordinates to create this map.
+
+        If kwarg **target** is None (default), a new figure is
+        generated from scratch.  If target is a matplotlib Figure
+        object, a new axis is created to fill that figure at subplot
+        location **loc**.  If **target** is a matplotlib Axes object,
+        the plot is placed into that axis.
+
+        Extra arguments and keyword arguments are passed to the
+        *matplotlib.axes._subplots.AxesSubplot.contourf* method.
+
+        Parameters
+        ==========
+        var : string
+            The value to be plotted, e.g., 'eflux'.
+
+        Returns
+        =======
+        fig : matplotlib figure object
+        ax  : matplotlib axes object
+
+        Other Parameters:
+        =================
+        epoch : datetime, defaults to 1999-9-15 6:00 UT
+            The date and time of the map. Important for converting the
+            aurora information to geographic coordinates.
+        target : Figure or Axes
+            If None (default), a new figure is generated from scratch.
+            If a matplotlib Figure object, a new axis is created
+            to fill that figure.
+            If a matplotlib Axes object, the plot is placed
+            into that axis.
+        loc : int
+            Use to specify the subplot placement of the axis
+            (e.g. loc=212, etc.) Used if target is a Figure or None.
+            Default 111 (single plot).
+        vmin, vmax : float
+            Set the color range.  Defaults to max and 1% of range of data.
+        nlevs : int, defaults to 15
+            Set the number of contour levels.
+        alpha : float, defaults to 0.2
+            Set the aurora contour alpha.
+        title : string
+            Sets the plot title.  Defaults to 'auto', using the variable label.
+        clabel : string
+            Set label for the color bar, defaults to *var*
+            and associated units.
+        cmap : string color map name
+            Set the color map to be used.  Defaults to 'Greens'.
+        '''
+
+        import cartopy.crs as ccrs
+        from cartopy.feature.nightshade import Nightshade
+
+        # Update geographic coordinates:
+        self.calc_geo(epoch=epoch)
+
+        # Extract values to plot, flatten.
+        znorth = self['north'][var].flatten()
+        zsouth = self['south'][var].flatten()
+
+        # Extract geo coordinates, flatten.
+        lat_n = self['north']['lat_geo'].flatten()
+        lon_n = self['north']['lon_geo'].flatten()
+        lat_s = self['south']['lat_geo'].flatten()
+        lon_s = self['south']['lon_geo'].flatten()
+
+        # Set vmin, vmax if not already set. For vmin, use 1% of the range of
+        # the data to avoid including zero values.
+        if vmin is None:
+            rng = max(znorth.max() - znorth.min(), zsouth.max() - znorth.min())
+            vmin = 0.01 * rng
+        if vmax is None:
+            vmax = max(znorth.max(), znorth.min())
+        # Set contour levels based on vmin, vmax.
+        levels = np.linspace(vmin, vmax, nlevs)
+
+        # Create a title if one not set:
+        if title is None:
+            varname = labels[var] if var in labels else var
+            title = f"{varname} on {epoch.isoformat()}"
+
+        # Set ax and fig based on given target.
+        fig, ax = set_target(target, figsize=(10, 5), loc=loc,
+                             projection=ccrs.PlateCarree())
+        # Create world map:
+        ax.stock_img()
+        ax.add_feature(Nightshade(epoch, alpha=0.2))
+        ax.set_title(title)
+
+        # Overplot aurora:
+        ax.tricontourf(lon_n, lat_n, znorth, levels=levels, alpha=alpha,
+                       cmap=cmap, **kwargs)
+        ax.tricontourf(lon_s, lat_s, zsouth, levels=levels, alpha=alpha,
+                       cmap=cmap, **kwargs)
+
+        return fig, ax

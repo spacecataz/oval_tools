@@ -7,10 +7,17 @@ the purpose of investigating observational requirements.
 import datetime as dt
 
 import numpy as np
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 
 # Set a good style sheet because we are not savages.
-plt.style.use('seaborn-v0_8-talk')
+vers = mpl.__version__.split('.')
+vers = float(vers[0]) + float(vers[1])/10.
+style = 'seaborn-v0_8-talk' if vers >= 3.8 else 'seaborn-talk'
+plt.style.use(style)
+
+# Constants:
+Re = 6378.14
 
 # Some default labels for plotting:
 labels = {'eflux': 'Energy Flux', 'avee': 'Avg. Energy',
@@ -113,6 +120,101 @@ def add_wedge(ax, box, **kwargs):
     # Add the arcs:
     ax.plot(theta, box[0]+np.zeros(theta.size), **kwargs)
     ax.plot(theta, box[1]+np.zeros(theta.size), **kwargs)
+
+
+def calc_fov(lat=0.0, alt=110.0, elev=10.0):
+    '''
+    This function calculates `alpha`, the half-angle of field-of-view of a
+    ground all-sky camera station that is `height` off of the ground.
+
+
+    Parameters
+    ----------
+    lat : float, defaults to 0
+        Latitude of observing station, in degrees.
+    alt : float, defaults to 110.0
+        Height of image from the ground, in km.
+    elev : float, defaults to 10.0
+        The elevation of the edge of the image above the horizon, in degrees.
+
+    Returns
+    -------
+    dlon, dlat : float
+        Width of the view in lat/lon given the input latitude.
+    rho : float
+        The radius of the FOV, where rho = sqrt(lat**2 + lon**2)
+    '''
+
+    # Convert degrees to radians.
+    elev *= np.pi/180.
+    lat *= np.pi/180.
+
+    # View circle radius, in km:
+    rho0 = alt * (2*Re + alt) / (2*Re*np.sin(elev))
+
+    # View circle radius at height:
+    rho = alt * (2*Re + alt) / (2*Re*np.sin(elev) + rho0)
+
+    # Calculate dlat, dlon:
+    dlat, dlon = 180/np.pi * rho / Re, 180/np.pi * rho / (Re * np.cos(lat))
+
+    return dlon, dlat
+
+
+def add_pov(ax, lon, lat):
+    '''
+    Given a matplotlib Axes object using Cartopy's PlateCarree projection,
+    add an all-sky POV to the axes.
+
+    Parameters
+    ----------
+    ax : Matplotlib Axes object
+        The axes object onto which the POV will be added.
+    lon, lat : float
+        The center of the POV eclipse, in degrees.
+    dlon, dlat : float
+        The lat/lon widths of the POV oval, in degrees.
+    '''
+
+    from matplotlib.patches import Ellipse
+    import cartopy.crs as ccrs
+
+    dlon, dlat = calc_fov(lat)
+
+    pov = Ellipse((lon, lat), 2*dlon, 2*dlat, transform=ccrs.PlateCarree(),
+                  fc=None, ec='crimson', lw=2.0)
+    ax.add_patch(pov)
+
+
+def calc_fov_bad(height=3.0):
+    '''
+    This function calculates `alpha`, the half-angle of field-of-view of a
+    ground all-sky camera station that is `height` off of the ground.
+
+
+    Parameters
+    ----------
+    height : float, defaults to 3.0
+        Height of the camera off of the ground in meters.
+    '''
+
+    # Convert height to km.
+    height /= 1000.0  # m -> km
+
+    # Convert to arclength
+    # see https://sites.math.washington.edu/~conroy/m120-general/horizon.pdf
+    s = np.sqrt(2*Re*height)
+    print('s = ', s)
+    print('s = ', (Re+110.) * s / Re)
+
+    # Adjust for view angle of allsky:
+    # tbd
+
+    # Convert to arclenth at 110km mapped back to the surface.
+    # Convert to half-angle (lat/lon "radius") of view angle in degrees.
+    alpha = (Re+110.) * s / Re**2 * (180./np.pi)
+
+    return alpha
 
 
 class Aurora(dict):

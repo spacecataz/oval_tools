@@ -161,7 +161,8 @@ def calc_fov(lat=0.0, alt=110.0, elev=10.0):
     return dlon, dlat
 
 
-def add_pov(ax, lon, lat):
+def add_pov(ax, lon, lat, label=None, lsize=14, add_borders=True,
+            ellipse_kwargs={}):
     '''
     Given a matplotlib Axes object using Cartopy's PlateCarree projection,
     add an all-sky POV to the axes.
@@ -174,16 +175,36 @@ def add_pov(ax, lon, lat):
         The center of the POV eclipse, in degrees.
     dlon, dlat : float
         The lat/lon widths of the POV oval, in degrees.
+    label : string, defaults to None
+        Create label at circle center.
+    lsize : float, defaults to 14
+        Label font size in points.
+    ellipse_kwargs : dict
+        Dictionary of kwargs to send to the MPL ellipse patch.
+        Note that kwarg 'fill' is always set to False.
+
     '''
 
     from matplotlib.patches import Ellipse
     import cartopy.crs as ccrs
 
+    # Set defaults in ellipse kwargs:
+    if 'ec' not in ellipse_kwargs:
+        ellipse_kwargs['ec'] = 'crimson'
+    if 'lw' not in ellipse_kwargs:
+        ellipse_kwargs['lw'] = 2.0
+    ellipse_kwargs['fill'] = False
+
     dlon, dlat = calc_fov(lat)
 
     pov = Ellipse((lon, lat), 2*dlon, 2*dlat, transform=ccrs.PlateCarree(),
-                  fc=None, ec='crimson', lw=2.0)
+                  **ellipse_kwargs)
     ax.add_patch(pov)
+
+    # Add label to center:
+    if label is not None:
+        ax.text(lon, lat, label, size=lsize, transform=ccrs.PlateCarree(),
+                ha='center', va='center')
 
 
 def calc_fov_bad(height=3.0):
@@ -1142,7 +1163,8 @@ class Aurora(dict):
 
     def plot_map(self, var, epoch=dt.datetime(1999, 9, 15, 6, 0, 0),
                  nlevs=15, alpha=.2, vmin=None, vmax=None, cmap='Greens',
-                 title=None, target=None, loc=111, **kwargs):
+                 title=None, target=None, loc=111, show_borders=True,
+                 **kwargs):
         '''
         Create a plot of the aurora value *var* over the globe in geographic
         latitude and longitude. SM aurora values are rotated into geographic
@@ -1195,10 +1217,13 @@ class Aurora(dict):
             and associated units.
         cmap : string color map name
             Set the color map to be used.  Defaults to 'Greens'.
+        show_borders : bool, defaults to True
+            Add country/ocean borders to map.
         '''
 
         import cartopy.crs as ccrs
         from cartopy.feature.nightshade import Nightshade
+        import cartopy.feature as cf
 
         # Update geographic coordinates:
         self.calc_geo(epoch=epoch)
@@ -1235,6 +1260,10 @@ class Aurora(dict):
         ax.stock_img()
         ax.add_feature(Nightshade(epoch, alpha=0.2))
         ax.set_title(title)
+
+        if show_borders is True:
+            ax.add_feature(cf.COASTLINE)
+            ax.add_feature(cf.BORDERS)
 
         # Overplot aurora:
         ax.tricontourf(lon_n, lat_n, znorth, levels=levels, alpha=alpha,
